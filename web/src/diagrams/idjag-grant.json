@@ -1,0 +1,260 @@
+{
+  "schema": "diagram-studio/1",
+  "id": "pfidjag-jag",
+  "title": "PingFederate ID-JAG: grant",
+  "lede": "Imported flow from the pf Id Jag diagram.",
+  "groups": {
+    "user": {
+      "label": "User and browser",
+      "color": "grey"
+    },
+    "bff": {
+      "label": "Demo BFF and Agent Service",
+      "color": "grey"
+    },
+    "ping": {
+      "label": "Ping product (PingFederate, PingGateway, PingOne Authorize)",
+      "color": "grey"
+    },
+    "res": {
+      "label": "MCP server",
+      "color": "grey"
+    }
+  },
+  "nodes": [
+    {
+      "id": "user",
+      "group": "user",
+      "label": "User + agent",
+      "sub": [
+        "UC40 \u00b7 MCP request",
+        "browser holds a session cookie only"
+      ],
+      "x": 0,
+      "y": 250
+    },
+    {
+      "id": "bff",
+      "group": "bff",
+      "label": "Demo BFF",
+      "sub": [
+        "token custodian \u00b7 OAuth client",
+        "holds the PingFederate refresh token",
+        "server-side, never in the browser"
+      ],
+      "x": 480,
+      "y": 250
+    },
+    {
+      "id": "pingfed",
+      "group": "ping",
+      "label": "PingFederate",
+      "sub": [
+        "Side 1 \u00b7 validates + issues",
+        "policy aiDemoPfIdJagPolicy"
+      ],
+      "x": 960,
+      "y": 0
+    },
+    {
+      "id": "jag",
+      "group": "ping",
+      "label": "ID-JAG",
+      "sub": [
+        "signed JWT assertion",
+        "typ oauth-id-jag+jwt \u00b7 short-lived"
+      ],
+      "x": 480,
+      "y": 0
+    },
+    {
+      "id": "mcpas",
+      "group": "res",
+      "label": "MCP Authorization Server",
+      "sub": [
+        "Side 2 \u00b7 validates + redeems",
+        "oauth-mcp \u00b7 mints its own access token"
+      ],
+      "x": 1060,
+      "y": 500
+    },
+    {
+      "id": "gateway",
+      "group": "ping",
+      "label": "PingGateway",
+      "sub": [
+        "access-token enforcement",
+        "MCP gateway"
+      ],
+      "x": 480,
+      "y": 500
+    },
+    {
+      "id": "authorize",
+      "group": "ping",
+      "label": "PingOne Authorize",
+      "sub": [
+        "action policy \u00b7 PERMIT or DENY"
+      ],
+      "x": 0,
+      "y": 500
+    },
+    {
+      "id": "invest",
+      "group": "res",
+      "label": "MCP server",
+      "sub": [
+        "OLB backend \u00b7 runs the tool",
+        "get_my_accounts"
+      ],
+      "x": 480,
+      "y": 750
+    },
+    {
+      "id": "banking",
+      "group": "res",
+      "label": "BFF banking API",
+      "sub": [
+        "verifies the token \u00b7 returns data"
+      ],
+      "x": 1060,
+      "y": 750
+    }
+  ],
+  "edges": [
+    {
+      "source": "user",
+      "target": "bff",
+      "label": "POST /api/agent/run"
+    },
+    {
+      "source": "bff",
+      "target": "pingfed",
+      "label": "token exchange: refresh token"
+    },
+    {
+      "source": "pingfed",
+      "target": "jag",
+      "label": "validate, map, sign"
+    },
+    {
+      "source": "jag",
+      "target": "bff",
+      "label": "ID-JAG returned",
+      "dashed": true
+    },
+    {
+      "source": "bff",
+      "target": "mcpas",
+      "label": "JWT bearer grant: assertion=ID-JAG"
+    },
+    {
+      "source": "mcpas",
+      "target": "bff",
+      "label": "MCP access token",
+      "dashed": true
+    },
+    {
+      "source": "bff",
+      "target": "gateway",
+      "label": "tools/call + Bearer"
+    },
+    {
+      "source": "gateway",
+      "target": "authorize",
+      "label": "action policy check"
+    },
+    {
+      "source": "gateway",
+      "target": "invest",
+      "label": "permitted tool call"
+    },
+    {
+      "source": "invest",
+      "target": "banking",
+      "label": "same Bearer"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start the UC40 MCP request",
+      "what": "The BFF receives the user's request and keeps OAuth tokens out of the browser. The UC40 PingFederate lane uses its server-held refresh token as the upstream subject.",
+      "why": "The browser never holds a token, so there is nothing for page script to steal.",
+      "edges": [
+        0
+      ]
+    },
+    {
+      "title": "Side 1 \u00b7 PingFederate validates the upstream token",
+      "what": "The BFF sends a token-exchange request with the refresh token, its token type, the downstream audience/resource, and requested scopes. PingFederate's token-exchange policy validates the refresh token.",
+      "why": "The exchange runs as the same client that received the refresh token; PingFederate binds refresh tokens to their client.",
+      "edges": [
+        1
+      ]
+    },
+    {
+      "title": "PingFederate mints the ID-JAG",
+      "what": "After validation and attribute mapping, PingFederate builds and signs the ID-JAG. Its audience identifies the downstream authorization server; its resource and scope constrain the MCP access being requested.",
+      "why": "The assertion is audience-bound: only the named authorization server can use it.",
+      "edges": [
+        2
+      ]
+    },
+    {
+      "title": "PingFederate issues the ID-JAG",
+      "what": "PingFederate returns a signed ID-JAG to the BFF in access_token, with issued_token_type naming it an ID-JAG. The BFF refuses the wrong type, issuer, audience or expiry before using it.",
+      "why": "Checking on receipt means a misconfigured exchange fails here, not three hops later.",
+      "edges": [
+        3
+      ]
+    },
+    {
+      "title": "Side 2 \u00b7 submit ID-JAG for validation",
+      "what": "The BFF sends the ID-JAG to the configured downstream MCP authorization server as a JWT bearer assertion. The MCP AS checks issuer/signature, audience, expiry, ID-JAG type, its resource allowlist, and the single-use jti.",
+      "why": "A second server judges a credential the first server signed: that is cross-app access.",
+      "edges": [
+        4
+      ]
+    },
+    {
+      "title": "Downstream AS issues its local access token",
+      "what": "A successful JWT bearer grant returns a resource-specific MCP access token. The ID-JAG was the grant assertion; the newly issued access token is what authorizes the protected call.",
+      "why": "The ID-JAG is spent here and goes no further.",
+      "edges": [
+        5
+      ]
+    },
+    {
+      "title": "Call the protected MCP tool",
+      "what": "The BFF sends the MCP request to PingGateway with the downstream access token.",
+      "why": "PingGateway enforces the token before the MCP server sees the call.",
+      "edges": [
+        6
+      ]
+    },
+    {
+      "title": "PingGateway asks PingOne Authorize",
+      "what": "PingGateway asks PingOne Authorize for the action-policy decision before the MCP server is allowed to run the tool.",
+      "why": "A valid token is not enough: policy decides the action.",
+      "edges": [
+        7
+      ]
+    },
+    {
+      "title": "The permitted call reaches the MCP server",
+      "what": "After PERMIT, PingGateway forwards the same access token to the MCP server (the OLB backend) that owns get_my_accounts.",
+      "why": "The token is passed along unchanged because its audience already matches.",
+      "edges": [
+        8
+      ]
+    },
+    {
+      "title": "The MCP server reads the data",
+      "what": "The MCP server passes the same access token to the BFF banking API. The banking API verifies the signature and exact issuer, applies audience, scope and role checks, and returns the data. The ID-JAG never reaches this hop.",
+      "why": "Every hop after Side 2 sees only the access token.",
+      "edges": [
+        9
+      ]
+    }
+  ]
+}

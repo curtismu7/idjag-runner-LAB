@@ -1,0 +1,16 @@
+/* Diagram styling (rule 5/17), copied from pingfederate-LAB's app.css diagram block. Colors, stripes and the
+   node look live in the shared standalone-ui.css (.dg-node / .dg-<color>); this file only lays out the canvas. */
+.diagram { margin: 12px 0; min-width: 0; }
+.dg-title { margin-bottom: 2px; }
+.lede { color: var(--muted); margin-top: 0; }
+.dg-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.dg-canvas { height: 440px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.dg-node { max-width: 240px; }
+.dg-node span { font-size: 12px; overflow-wrap: anywhere; }
+.handle-back { opacity: 0; pointer-events: none; top: 70%; }
+.react-flow { --xy-edge-stroke: var(--muted); --xy-background-color: var(--surface); --xy-edge-label-color: var(--text); --xy-edge-label-background-color: var(--surface); }
+.react-flow__edge-textbg { fill: var(--surface); }
+.react-flow__edge-text { fill: var(--text); font-size: 11px; }
+.edge-on { stroke: var(--accent); }
+.edge-dim { opacity: 0.45; }
+.edge-dashed { stroke-dasharray: 6 4; }

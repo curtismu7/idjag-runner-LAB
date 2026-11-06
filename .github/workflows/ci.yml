@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - run: npm ci
+      - run: npm test --workspaces --if-present
+      # The vendored shared stylesheet must match the hash pinned when it was last re-vendored.
+      - run: bash scripts/check-ui-standard.sh
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - run: npm ci
+      - run: npm run build
+
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      - run: npm ci
+      - run: npm run build
+      - run: npm run doctor
+
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+      # A copy of demo-kit-base's gate (not shipped to demo repos yet); it sits under test/ because the gate scans every other source file, itself included.
+      # The wrapper waives exactly-and-only rule 19 (real-PF-only lab, owner decision 2026-11-06): any other FAIL fails the job.
+      - run: bash scripts/conformance-ci.sh
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # The Docker form: build the image, start it, read /api/health through the loopback-only publish.
+      - name: Build and start
+        run: HOST_PORT=4789 docker compose -f deploy/docker-compose.yml up --build -d --wait --wait-timeout 180
+      - name: Health answers demo-health/1
+        run: curl -fsS http://127.0.0.1:4789/api/health | tee /dev/stderr | grep -q '"schema":"demo-health/1"'
+      - name: Stop
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
+
+  forbidden-strings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Scan history and tree (counts only, the list is never printed)
+        env:
+          FORBIDDEN_STRINGS: ${{ secrets.FORBIDDEN_STRINGS }}
+        run: |
+          list="$RUNNER_TEMP/forbidden.txt"
+          printf '%s\n' "$FORBIDDEN_STRINGS" | grep -v '^$' > "$list" || true
+          test -s "$list" || { echo "FORBIDDEN_STRINGS secret is empty"; exit 1; }
+          hist=$(git log -p --all | grep -cF -f "$list" || true)
+          tree=$(git grep -l -F -f "$list" -- . || true)
+          tree_count=$(printf '%s' "$tree" | grep -c . || true)
+          echo "history hits: $hist"
+          echo "tree files with hits: $tree_count"
+          test "$hist" = "0" && test "$tree_count" = "0"
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

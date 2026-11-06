@@ -1,0 +1,15 @@
+{
+  "id": "idjag-runner",
+  "name": "ID-JAG Runner",
+  "kind": "Tester",
+  "description": "Runs the PingFederate ID-JAG (cross-app access) demo without Postman: password grant + refresh, RFC 8693 exchange for the ID-JAG assertion (three subject variants), jwt-bearer redeem + introspection at the resource AS, four refusal cases, and a JWKS inspector. Real PingFederate 13.1+ only; client secrets are typed per session and write-only.",
+  "url": "http://localhost:4780",
+  "healthPath": "/api/health",
+  "composeFile": "deploy/docker-compose.yml",
+  "composeOverlays": [],
+  "port": 4780,
+  "notes": "Real PingFederate only (owner exception, 2026-11-06): the idjag-* demo objects must exist on the target PF; set the runtime URL in Settings. Docker: docker compose -f deploy/docker-compose.yml up --build -d (publishes 127.0.0.1:4780 only; HOST_PORT moves it).",
+  "pingProducts": [
+    "pingfederate"
+  ]
+}

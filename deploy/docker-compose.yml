@@ -1,0 +1,26 @@
+# OrbStack:  docker compose up --build -d   ->  http://127.0.0.1:4780
+# The publish below must stay 127.0.0.1-only: this lab talks to a real PingFederate with typed per-session
+# secrets, so it must never be reachable from the network. A test pins this file (server/test/app.test.js).
+# Another port: HOST_PORT=4781 docker compose up -d. One number, used on both sides of the mapping and as the
+# lab's PORT, because the lab answers only the Host it is published as (127.0.0.1:<HOST_PORT>).
+name: idjag-runner
+
+services:
+  idjag-runner:
+    build: ..
+    ports:
+      - "127.0.0.1:${HOST_PORT:-4780}:${HOST_PORT:-4780}"
+    environment:
+      PORT: "${HOST_PORT:-4780}"
+      # Loopback marker (rule 11): the publish above is 127.0.0.1-only, so the container may widen its own bind.
+      LAB_BIND: 0.0.0.0
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:process.env.PORT||4780,path:'/api/health'},r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{process.exit(JSON.parse(b).schema==='demo-health/1'?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

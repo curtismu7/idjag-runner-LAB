@@ -1,0 +1,189 @@
+{
+  "schema": "demo-content-pack/1",
+  "id": "idjag-runner",
+  "title": "ID-JAG Runner: cross-app access against a real PingFederate",
+  "version": "1.0.0",
+  "source": {
+    "repo": "idjag-runner-LAB",
+    "generated": "2026-11-06",
+    "commit": "0000000"
+  },
+  "demo": {
+    "id": "idjag-runner",
+    "name": "ID-JAG Runner",
+    "baseUrl": "http://127.0.0.1:4780",
+    "doctor": "/api/health",
+    "tags": [
+      "pingfederate",
+      "oauth",
+      "token-exchange",
+      "id-jag",
+      "agents"
+    ],
+    "catalog": "C1"
+  },
+  "glossary": [
+    {
+      "id": "id-jag",
+      "term": "ID-JAG",
+      "definition": "Identity Assertion JWT Authorization Grant. PingFederate issues a short-lived signed JWT assertion that a second authorization server can redeem for tokens, so a client never hands its own user tokens across app boundaries."
+    },
+    {
+      "id": "token-exchange",
+      "term": "Token exchange",
+      "definition": "RFC 8693. A client sends one token and gets a different one back, for example an ID-JAG assertion in exchange for the user's ID token, refresh token or access token."
+    },
+    {
+      "id": "jwt-bearer",
+      "term": "JWT bearer grant",
+      "definition": "RFC 7523. The client proves who it is by presenting a signed JWT assertion instead of a shared secret; the resource-AS validates the signature, issuer, audience and expiry."
+    },
+    {
+      "id": "password-grant",
+      "term": "Password grant",
+      "definition": "grant_type=password (RFC 6749 section 4.3). The client sends the user's username and password straight to the token endpoint. Legacy, but useful in a lab to get a real token set without a browser sign-in."
+    },
+    {
+      "id": "introspection",
+      "term": "Token introspection",
+      "definition": "RFC 7662. A resource server asks the authorization server whether a token is active and what it allows, using its own client credentials."
+    },
+    {
+      "id": "refusals",
+      "term": "Refusal cases",
+      "definition": "The negative tests that prove the grant is real: a wrong client cannot redeem the assertion, a wrong resource is refused as invalid_target, a forged assertion fails signature validation, and a wrong scope is denied."
+    },
+    {
+      "id": "write-only",
+      "term": "Write-only secrets",
+      "definition": "Client secrets typed into the lab are held in server memory for the session only, never echoed in any response, trace or log, and never stored."
+    },
+    {
+      "id": "netguard",
+      "term": "Netguard",
+      "definition": "The lab's outbound guard: it allows calls to the one PingFederate runtime configured in Settings and refuses everything else before a socket opens."
+    }
+  ],
+  "sources": [
+    {
+      "id": "rfc8693",
+      "title": "OAuth 2.0 Token Exchange (RFC 8693)",
+      "url": "https://www.rfc-editor.org/rfc/rfc8693",
+      "kind": "spec",
+      "use": "Background for the ID-JAG exchange card.",
+      "status": "not-read",
+      "checked": "2026-11-06"
+    },
+    {
+      "id": "rfc7523",
+      "title": "JWT Bearer Grant (RFC 7523)",
+      "url": "https://www.rfc-editor.org/rfc/rfc7523",
+      "kind": "spec",
+      "use": "Background for the redeem card.",
+      "status": "not-read",
+      "checked": "2026-11-06"
+    },
+    {
+      "id": "rfc7662",
+      "title": "Token Introspection (RFC 7662)",
+      "url": "https://www.rfc-editor.org/rfc/rfc7662",
+      "kind": "spec",
+      "use": "Background for the introspection card.",
+      "status": "not-read",
+      "checked": "2026-11-06"
+    }
+  ],
+  "cards": [
+    {
+      "id": "start-the-lab",
+      "label": "Start the lab and check it",
+      "group": "setup",
+      "action": {
+        "type": "route",
+        "href": "/"
+      },
+      "description": "npm install && npm start (or docker compose up). The lab binds loopback only; health is demo-health/1.",
+      "terms": [
+        "netguard"
+      ]
+    },
+    {
+      "id": "set-runtime",
+      "label": "Point the lab at a PingFederate 13.1+",
+      "group": "setup",
+      "action": {
+        "type": "route",
+        "href": "/settings"
+      },
+      "description": "Any https origin works (a default demo runtime ships configured). The idjag-* demo objects must exist on the target PingFederate.",
+      "terms": []
+    },
+    {
+      "id": "act1",
+      "label": "Get a real token set (password grant, then refresh)",
+      "group": "try-it",
+      "action": {
+        "type": "route",
+        "href": "/settings"
+      },
+      "description": "Act 1 posts grant_type=password, then a refresh grant that returns the ID token. Every hop shows its redacted wire trace.",
+      "terms": [
+        "password-grant"
+      ]
+    },
+    {
+      "id": "act2",
+      "label": "Exchange for an ID-JAG",
+      "group": "try-it",
+      "action": {
+        "type": "route",
+        "href": "/settings"
+      },
+      "description": "Act 2 runs RFC 8693 token exchange for the ID-JAG token type with three subject variants: ID token, refresh token, access token. The assertion's header and claims are decoded and shown.",
+      "terms": [
+        "token-exchange",
+        "id-jag"
+      ]
+    },
+    {
+      "id": "act3",
+      "label": "Redeem the assertion at the resource AS",
+      "group": "try-it",
+      "action": {
+        "type": "route",
+        "href": "/settings"
+      },
+      "description": "Act 3 redeems the ID-JAG with a jwt-bearer grant at the resource-AS client, then introspects the resulting token with a third client.",
+      "terms": [
+        "jwt-bearer",
+        "introspection"
+      ]
+    },
+    {
+      "id": "act4",
+      "label": "Prove the refusals",
+      "group": "try-it",
+      "action": {
+        "type": "route",
+        "href": "/settings"
+      },
+      "description": "Act 4 runs the four refusal cases: unauthorized_client, invalid_target, a forged assertion, and a wrong scope. Each refusal shows the real PingFederate error.",
+      "terms": [
+        "refusals"
+      ]
+    },
+    {
+      "id": "secrets",
+      "label": "Why the secrets never come back",
+      "group": "concept",
+      "action": {
+        "type": "route",
+        "href": "/about"
+      },
+      "description": "Client secrets are typed per session and write-only: never returned by any API, redacted in every trace.",
+      "terms": [
+        "write-only"
+      ]
+    }
+  ]
+}
