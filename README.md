@@ -17,7 +17,27 @@ Default PF runtime: `https://cmuir-pf-acme.ping-devops.com` (idjag-* demo object
 
 ## Run
 
+### On your machine (Docker — no Node needed)
+
 ```bash
+mkdir -p ~/Development && cd ~/Development
+git clone https://github.com/curtismu7/idjag-runner-LAB.git
+cd idjag-runner-LAB
+docker compose -f deploy/docker-compose.yml up --build -d
+```
+
+Then open http://127.0.0.1:4780, sign in as `demouser` (only the password is needed — the demo clients are pre-filled). Another port: `HOST_PORT=4781` in front of the `docker compose` command.
+
+```bash
+docker compose -f deploy/docker-compose.yml down   # stop it
+```
+
+### Development (host-run, needs Node 26)
+
+```bash
+mkdir -p ~/Development && cd ~/Development
+git clone https://github.com/curtismu7/idjag-runner-LAB.git
+cd idjag-runner-LAB
 npm install
 npm run build          # builds the web UI (web/dist)
 npm test               # node --test (server) + vitest (web)
