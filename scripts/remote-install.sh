@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# One-liner for another machine (repo is private, so a GitHub token with repo read access is required):
-#   curl -fsSL -H "Authorization: Bearer <YOUR_GITHUB_TOKEN>" \
-#     https://raw.githubusercontent.com/curtismu7/idjag-runner-LAB/main/scripts/remote-install.sh | bash -s -- <YOUR_GITHUB_TOKEN>
+# One-liner for another machine (the repo is public — no token needed):
+#   curl -fsSL https://raw.githubusercontent.com/curtismu7/idjag-runner-LAB/main/scripts/remote-install.sh | bash
 # Downloads the repo tarball, extracts, pre-flights, builds, starts, opens the browser.
 set -euo pipefail
-TOKEN="${1:-${GITHUB_TOKEN:-}}"
 REPO="curtismu7/idjag-runner-LAB"
 DIR="${HOME}/Development/idjag-runner-LAB"
 PORT="${HOST_PORT:-4780}"
-
-[ -n "$TOKEN" ] || { echo "Usage: pass a GitHub token with read access to $REPO as the first argument (or set GITHUB_TOKEN)."; echo "Create one: https://github.com/settings/tokens (read:contents only is enough)"; exit 1; }
+# The repo is public: no token needed. (A token still works if you fork/privatize: pass it as $1
+# or set GITHUB_TOKEN, and the api.github.com tarball endpoint is used instead of codeload.)
 
 command -v docker >/dev/null 2>&1 || { echo "Docker is not installed. Install Docker Desktop (docker.com) or OrbStack (orbstack.dev) first."; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker is installed but not running. Start it, then re-run."; exit 1; }
@@ -18,7 +16,7 @@ command -v curl >/dev/null 2>&1 || { echo "curl is required."; exit 1; }
 mkdir -p "$(dirname "$DIR")"
 echo "Downloading $REPO (main)..."
 TAR=$(mktemp)
-curl -fsSL -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/$REPO/tarball/main" -o "$TAR"
+curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/main" -o "$TAR"
 
 # Fresh dir each time; keep an existing clone if present (fast path: git pull).
 if [ -d "$DIR/.git" ]; then
