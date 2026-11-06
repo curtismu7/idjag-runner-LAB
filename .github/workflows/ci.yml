@@ -17,6 +17,8 @@ jobs:
         with:
           node-version: 26
       - run: npm ci
+      # doctor (run inside the test suite) needs the built web assets.
+      - run: npm run build
       - run: npm test --workspaces --if-present
       # The vendored shared stylesheet must match the hash pinned when it was last re-vendored.
       - run: bash scripts/check-ui-standard.sh
