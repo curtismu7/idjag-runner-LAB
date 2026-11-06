@@ -139,16 +139,24 @@ export default function FlowTab() {
         <h3 id="act3-h">Act 3 — Redeem the ID-JAG, then introspect</h3>
         <p className="card-sub">Proves: only the resource client can redeem the grant (jwt-bearer), and the result is an ordinary access token.</p>
         <div className="actions">
-          <button className="primary" disabled={busy || !clientSecret}
+          <button className="primary" disabled={busy || !clientSecret || !act2Result}
             onClick={() => run('/api/flow/act3/redeem', { clientId, clientSecret, scope: exchangeScope }, setRedeemResult)}>
             Redeem ID-JAG
           </button>
-          <button disabled={busy || !clientSecret}
+          <button disabled={busy || !clientSecret || !redeemResult}
             onClick={() => run('/api/flow/act3/introspect', { clientId, clientSecret }, setIntroResult)}>
             Introspect access token
           </button>
         </div>
-        {redeemResult ? (
+        {!act2Result ? <p className="secret-note">Run Act 2 first — Act 3 redeems the ID-JAG that Act 2 minted (it lives about 5 minutes).</p> : null}
+        {redeemResult?.redeemRefusal ? (
+          <div className="result-ok" data-testid="redeem-refusal">
+            PF refused the redeem as designed: <span className="mono">{redeemResult.pfError}</span>
+            {redeemResult.pfErrorDescription ? <span> — {redeemResult.pfErrorDescription}</span> : null}
+            <p className="card-sub">The ID-JAG is single-purpose and short-lived (~5 minutes): run Act 2 again for a fresh one.</p>
+            <TraceSteps steps={redeemResult.trace} />
+          </div>
+        ) : redeemResult ? (
           <div className="token-panel">
             <TokenView label="Redeemed access token" view={redeemResult.tokens.accessToken} />
             <TraceSteps steps={redeemResult.trace} />

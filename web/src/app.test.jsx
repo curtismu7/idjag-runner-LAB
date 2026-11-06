@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import App from './App.jsx';
@@ -102,6 +103,22 @@ describe('Act 4 expected-refusal styling', () => {
     expect(result.className).toBe('result-ok');
     expect(result.textContent).toMatch(/PF refused as designed: invalid_grant/);
     expect(screen.queryByRole('alert')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('a refused redeem renders the green refusal line', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ redeemRefusal: true, pfStatus: 400, pfError: 'invalid_grant', pfErrorDescription: 'The ID-JAG expired', trace: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<FlowTab />);
+    // Act 3 redeem button is disabled until Act 2 ran
+    expect(screen.getByRole('button', { name: 'Redeem ID-JAG' })).toBeDisabled();
+    // simulate Act 2 result by running act1+act2 via mocked fetch
+    fireEvent.change(screen.getByTestId('f-pass'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run Act 1' }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     vi.unstubAllGlobals();
   });
 

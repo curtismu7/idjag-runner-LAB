@@ -210,7 +210,11 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
       assertion, scope: str(body.scope), clientId, clientSecret, traceId,
     });
     req.session.lastTrace = [r.step];
-    if (!r.result.ok) throw new LabError('act3_redeem_failed', `The jwt-bearer redeem was refused (HTTP ${r.result.status})`, 502, { trace: [r.step] });
+    if (!r.result.ok) {
+      // A refused redeem is a teaching moment (expired ID-JAG, wrong audience, wrong client),
+      // not a lab error: surface it as a soft refusal the UI renders green.
+      return { redeemRefusal: true, pfStatus: r.result.status, pfError: r.result.json?.error || null, pfErrorDescription: r.result.json?.error_description || null, trace: [r.step] };
+    }
     req.session.tokens.act3 = r.result.json || {};
     return { tokens: { accessToken: tokenView(r.result.json?.access_token) }, trace: [r.step] };
   }));
