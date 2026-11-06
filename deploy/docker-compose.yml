@@ -11,6 +11,7 @@ services:
     ports:
       - "127.0.0.1:${HOST_PORT:-4780}:${HOST_PORT:-4780}"
     environment:
+      LAB_ALLOWED_HOSTS: "${LAB_ALLOWED_HOSTS:-idjag-runner.local.ping-devops.com,local.ping-devops.com}"
       PORT: "${HOST_PORT:-4780}"
       # Loopback marker (rule 11): the publish above is 127.0.0.1-only, so the container may widen its own bind.
       LAB_BIND: 0.0.0.0
