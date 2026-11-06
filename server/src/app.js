@@ -327,6 +327,27 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
     return { keys: result.json.keys, trace: discoveryStep ? [discoveryStep, step] : [step] };
   }));
 
+  // Decode a token locally (no signature verification happens here — the resource AS does that):
+  // split the JWT, base64url-decode header + payload, and report whether the header's kid/x5t
+  // matches a key in the runtime's JWKS. This is the "what did PF actually sign" teaching view.
+  app.post('/api/decode', wrap(async (req) => {
+    const token = str((req.body || {}).token);
+    if (!token) throw new LabError('missing_field', 'token is required', 400);
+    const parts = token.split('.');
+    if (parts.length < 2) throw new LabError('bad_token', 'Not a JWT (expected three dot-separated parts)', 400);
+    const b64 = (p) => { const pad = p + '='.repeat((4 - (p.length % 4)) % 4); return JSON.parse(Buffer.from(pad, 'base64url').toString('utf8')); };
+    let header, claims;
+    try { header = b64(parts[0]); claims = b64(parts[1]); } catch { throw new LabError('bad_token', 'Header or payload is not valid base64url JSON', 400); }
+    const { metadata, step: discoveryStep } = await pf.discover({ traceId: newTraceId() });
+    const url = metadata.jwksUri || `${settings.runtimeUrl()}/pf/JWKS`;
+    const result = await outbound.call(url, { headers: { Accept: 'application/json' }, traceId: newTraceId() });
+    const jwksKeys = (result.json?.keys || []).map((k) => ({ kid: k.kid, kty: k.kty, alg: k.alg, use: k.use, x5t: k.x5t, n: k.n, e: k.e, x5c: k.x5c }));
+    const kidMatch = header.kid ? jwksKeys.some((k) => k.kid === header.kid) : null;
+    const x5tMatch = header.x5t ? jwksKeys.some((k) => k.x5t === header.x5t) : null;
+    return { header, claims, signaturePart: parts[2] ? `${parts[2].length} chars` : null, jwksKeys, kidMatch, x5tMatch,
+      trace: discoveryStep ? [discoveryStep, { id: 'decode', title: 'Decode the token against the runtime JWKS', request: { method: 'POST', url: '/api/decode' }, response: { status: 200, body: { kidMatch, x5tMatch } } }] : [] };
+  }));
+
   app.post('/api/reset', wrap((req) => ({ ok: true, workspace: req.session.workspace, ...sessions.reset(req.session) })));
   app.post('/api/workspaces/:workspace/reset', wrap(async (req) => {
     if (!validWorkspace(req.params.workspace)) throw new LabError('bad_workspace', 'The workspace id is lowercase letters, digits and hyphens (1 to 32 characters)', 400);
