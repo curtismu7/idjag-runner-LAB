@@ -49,11 +49,12 @@ else
     fi
 
     # 5. port free (or already this lab)
-    if docker ps --format '{{.Ports}}' | grep -q ":$PORT->"; then
+    owner=$(curl -s --max-time 3 "http://127.0.0.1:$PORT/api/health" 2>/dev/null | grep -o '"id":"idjag-runner"' || true)
+    if [ -n "$owner" ]; then
       ok "port $PORT is already this lab (docker compose up is idempotent)"
     elif nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
-      bad "port $PORT is used by something else"
-      hint "stop that process, or use another port: HOST_PORT=$((PORT+1)) docker compose -f deploy/docker-compose.yml up --build -d"
+      bad "port $PORT is used by a different app"
+      hint "stop that app, or use another port: HOST_PORT=$((PORT+1)) bash scripts/install.sh"
     else
       ok "port $PORT is free"
     fi

@@ -26,9 +26,10 @@ echo "Building and starting the Tarun ID-JAG Runner..."
 docker compose -f deploy/docker-compose.yml up --build -d
 
 echo
-# Wait for health (max ~30s).
+# Wait for THIS app's health (max ~30s). The health body names the demo, so a
+# port collision with another lab is caught instead of celebrated.
 for i in $(seq 1 15); do
-  if curl -s "http://127.0.0.1:$PORT/api/health" 2>/dev/null | grep -q '"state":"ready"'; then
+  if curl -s "http://127.0.0.1:$PORT/api/health" 2>/dev/null | grep -q '"id":"idjag-runner".*"state":"ready"'; then
     echo "Tarun ID-JAG Runner is up:  http://127.0.0.1:$PORT"
     echo "Sign in: demouser · password only (Baseball123!)"
     # Open the browser (macOS / linux).
