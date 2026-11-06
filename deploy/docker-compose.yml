@@ -25,3 +25,13 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+networks:
+  default:
+    # Fixed subnet outside Docker's default pool: the lab never fails with
+    # "all predefined address pools have been fully subnetted" on machines
+    # with many compose networks (the pool exhaustion seen on lab machines).
+    # Change the third octet if 172.200.0.0/24 is taken on the machine.
+    ipam:
+      config:
+        - subnet: 172.200.0.0/24

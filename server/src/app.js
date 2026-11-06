@@ -10,7 +10,7 @@ import { createSettings, SettingsError, validateRuntimeUrl, DEFAULT_RUNTIME_URL 
 import { newTraceId, tokenView, safeBody } from './trace.js';
 import { mountShelfRoute } from './shelf-link/shelf.js';
 
-export const DEMO = { id: 'idjag-runner', name: 'ID-JAG Runner', version: '0.1.0' };
+export const DEMO = { id: 'idjag-runner', name: 'Tarun ID-JAG Runner', version: '0.1.0' };
 const DEFAULT_WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 // Demo client credentials created by the ID-JAG setup collection on the target PingFederate.
 // These are demo-only values from the SE guide (idjag-* objects); they let the flow run with

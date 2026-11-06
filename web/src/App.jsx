@@ -54,7 +54,7 @@ export default function App() {
   return (
     <>
       <header className="shell-bar">
-        <span className="shell-brand">ID-JAG Runner <small>real PingFederate</small></span>
+        <span className="shell-brand">Tarun ID-JAG Runner <small>real PingFederate</small></span>
         <nav className="shell-nav" aria-label="Sections">
           {TABS.map((t) => (
             <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>

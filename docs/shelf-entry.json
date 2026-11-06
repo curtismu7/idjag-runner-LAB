@@ -1,6 +1,6 @@
 {
   "id": "idjag-runner",
-  "name": "ID-JAG Runner",
+  "name": "Tarun ID-JAG Runner",
   "kind": "Tester",
   "description": "Runs the PingFederate ID-JAG (cross-app access) demo without Postman: password grant + refresh, RFC 8693 exchange for the ID-JAG assertion (three subject variants), jwt-bearer redeem + introspection at the resource AS, four refusal cases, and a JWKS inspector. Real PingFederate 13.1+ only; client secrets are typed per session and write-only.",
   "url": "http://localhost:4780",

@@ -1,7 +1,7 @@
 {
   "schema": "demo-content-pack/1",
   "id": "idjag-runner",
-  "title": "ID-JAG Runner: cross-app access against a real PingFederate",
+  "title": "Tarun ID-JAG Runner: cross-app access against a real PingFederate",
   "version": "1.0.0",
   "source": {
     "repo": "idjag-runner-LAB",
@@ -10,7 +10,7 @@
   },
   "demo": {
     "id": "idjag-runner",
-    "name": "ID-JAG Runner",
+    "name": "Tarun ID-JAG Runner",
     "baseUrl": "http://127.0.0.1:4780",
     "doctor": "/api/health",
     "tags": [
