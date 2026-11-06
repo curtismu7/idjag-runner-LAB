@@ -6,9 +6,19 @@ set -u
 cd "$(dirname "$0")/.."
 PORT="${HOST_PORT:-4780}"
 
-# Reuse the pre-flight if present (docker, compose, port, network pool, PF reachable).
+# Pre-flight (docker, compose, port, PF reachable). A nearly-full docker network
+# pool is only a warning here: the compose file pins its own subnet, so network
+# creation does not draw from the pool. Any other FAIL is a hard stop.
 if [ -f scripts/check-deploy.sh ]; then
-  bash scripts/check-deploy.sh || { echo; echo "Fix the FAIL lines above, then re-run: bash scripts/install.sh"; exit 1; }
+  out=$(bash scripts/check-deploy.sh 2>&1) || true
+  echo "$out"
+  if echo "$out" | grep -q '^FAIL' ; then
+    if echo "$out" | grep -q 'network pool nearly full' && [ "$(echo "$out" | grep -c '^FAIL')" = 1 ]; then
+      echo; echo "Network-pool warning only: the lab pins its own docker subnet, so it can start anyway."
+    else
+      echo; echo "Fix the FAIL lines above, then re-run: bash scripts/install.sh"; exit 1
+    fi
+  fi
 fi
 
 echo
