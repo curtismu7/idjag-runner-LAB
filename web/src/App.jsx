@@ -65,8 +65,13 @@ export default function App() {
         <div className="shell-right">
           <ShelfLink headers={{ 'X-Lab-Workspace': WORKSPACE }} />
           <span className="shell-runtime" title="Configured PingFederate runtime">{runtimeUrl}</span>
-          <button aria-pressed={theme === 'dark'} onClick={() => setTheme(theme === 'dark' ? '' : 'dark')}>Dark</button>
-          <button aria-pressed={theme === 'light'} onClick={() => setTheme(theme === 'light' ? '' : 'light')}>Light</button>
+          <label className="inline">Theme
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} data-testid="theme">
+              <option value="">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
         </div>
       </header>
       <main className="page">
