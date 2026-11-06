@@ -14,7 +14,7 @@ const start = async (pfOptions = {}) => {
   await new Promise((done) => placeholder.listen(0, '127.0.0.1', done));
   const port = placeholder.address().port;
   await new Promise((done) => placeholder.close(done));
-  const app = createApp({ port, defaultRuntimeUrl: pf.origin });
+  const app = createApp({ port, defaultRuntimeUrl: pf.origin, env: { ...process.env, ...(pfOptions.env || {}) } });
   const server = app.listen(port, '127.0.0.1');
   await new Promise((done) => server.once('listening', done));
   const base = `http://127.0.0.1:${port}`;
@@ -207,6 +207,22 @@ test('client secrets never appear in any trace, response or error body (redactio
   // The password grant's Basic header is redacted too.
   // The password grant's Basic credential is redacted: the scheme stays, the credential never does.
   assert.ok(!/Basic [^<]/.test(every));
+});
+
+test('proxied Host and Origin (any port, same name) are accepted behind the lab-proxy', async (t) => {
+  const ctx = await start({ env: { LAB_ALLOWED_HOSTS: 'idjag-runner.local.ping-devops.com' } });
+  t.after(() => ctx.close());
+  // Simulate the lab-proxy: Host rewritten to name:PORT, browser Origin keeping :8443.
+  const r = await post(ctx.base, '/api/settings', { runtimeUrl: ctx.pf.origin }, {
+    Host: 'idjag-runner.local.ping-devops.com:4780',
+    Origin: 'https://idjag-runner.local.ping-devops.com:8443',
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const health = await get(ctx.base, '/api/health', { Host: 'idjag-runner.local.ping-devops.com:4780' });
+  assert.equal(health.status, 200);
+  // A different host name is still refused.
+  const evil = await get(ctx.base, '/api/health', { Host: 'evil.example:4780' });
+  assert.equal(evil.status, 403);
 });
 
 test('host check, cross-origin writes and non-JSON writes are refused', async (t) => {

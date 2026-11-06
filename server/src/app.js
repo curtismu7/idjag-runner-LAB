@@ -48,10 +48,19 @@ export function labAddresses({ port, env = process.env }) {
   const extra = String(env.LAB_ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
   for (const h of extra) if (!HOSTNAME.test(h)) throw Object.assign(new Error(`LAB_ALLOWED_HOSTS: not a host name: ${h}`), { field: 'env' });
   const names = ['127.0.0.1', 'localhost', '[::1]', ...extra];
+  // Behind the shared lab-proxy the Host/Origin port differs from the lab's own port (the proxy
+  // rewrites Host to name:PORT while the browser Origin keeps :8443). Match hosts by name, any port.
+  const hostOf = (v) => String(v || '').toLowerCase().replace(/:\d+$/, '');
+  const nameSet = new Set(names);
   return {
     scheme,
     hosts: new Set(names.map((n) => `${n}:${port}`)),
     origins: new Set(names.map((n) => `${scheme}://${n}:${port}`)),
+    // same-name any-port matchers for proxied Host/Origin headers
+    hostAllowed: (hostHeader) => nameSet.has(hostOf(hostHeader)),
+    originAllowed: (origin) => {
+      try { return nameSet.has(hostOf(new URL(origin).host)); } catch { return false; }
+    },
   };
 }
 
@@ -79,7 +88,9 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
   const allowedOrigins = addresses.origins;
 
   app.use((req, res, next) => {
-    if (!allowedHosts.has(req.headers.host ?? '')) return res.status(403).json({ error: 'host_not_allowed' });
+    const host = req.headers.host ?? '';
+    // Exact name:port match, or same host name behind the proxy (any port).
+    if (!allowedHosts.has(host) && !addresses.hostAllowed(host)) return res.status(403).json({ error: 'host_not_allowed' });
     return next();
   });
 
@@ -98,7 +109,7 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
     if (req.method === 'GET' || req.method === 'HEAD') return next();
     const origin = req.headers.origin;
     const site = req.headers['sec-fetch-site'];
-    if (origin && !allowedOrigins.has(origin)) return res.status(403).json({ error: 'cross_origin_write_refused' });
+    if (origin && !allowedOrigins.has(origin) && !addresses.originAllowed(origin)) return res.status(403).json({ error: 'cross_origin_write_refused' });
     if (site && site !== 'same-origin' && site !== 'none') return res.status(403).json({ error: 'cross_origin_write_refused' });
     if (!String(req.headers['content-type'] || '').startsWith('application/json')) return res.status(415).json({ error: 'json_required' });
     return next();
