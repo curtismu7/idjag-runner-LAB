@@ -11,7 +11,7 @@ Default PF runtime: `https://cmuir-pf-acme.ping-devops.com` (idjag-* demo object
 - **Act 1** — resource-owner password grant (`grant_type=password`), then a refresh grant that returns the ID token.
 - **Act 2** — RFC 8693 token exchange for an ID-JAG (`requested_token_type=urn:ietf:params:oauth:token-type:id-jag`), three subject variants: ID token, refresh token, access token. The ID-JAG's header (`typ: oauth-id-jag+jwt`) and claims (iss/aud/sub/exp/scope/resource) are decoded and shown.
 - **Act 3** — jwt-bearer redeem of the ID-JAG at the resource-AS client, then introspection (`POST /as/introspect.oauth2`, or the runtime's advertised `introspection_endpoint` when discovery includes one) with a third client.
-- **Act 4** — refusals: wrong client redeems (`unauthorized_client`), wrong resource (`invalid_target`), forged assertion (`invalid_grant`), wrong scope (`access_denied`).
+- **Act 4** — refusals: wrong client redeems (`unauthorized_client`), wrong resource (`invalid_target`), forged assertion (`invalid_grant`), scope outside the client allowlist (`invalid_scope` at the grant).
 - **Inspector** — the runtime's public JWKS (`GET {runtime}/pf/JWKS`, no auth).
 
 ## Run

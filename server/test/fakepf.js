@@ -69,6 +69,14 @@ export function createFakePf({ failUnauthorizedClient = false, failWrongResource
           if (params.get('username') !== USER.username || params.get('password') !== USER.password) {
             return formError(400, 'invalid_grant', 'The credentials are wrong');
           }
+          // Scope allowlist per client (like PF restrictScopes): an out-of-allowlist scope is refused.
+          const allowed = auth.id === AC.clientId
+            ? ['openid', 'profile', 'chat.read', 'chat.history', 'offline_access']
+            : ['openid', 'profile'];
+          const asked = (params.get('scope') || '').split(' ').filter(Boolean);
+          if (asked.some((s) => !allowed.includes(s))) {
+            return formError(400, 'invalid_scope', 'The requested scope is invalid, unknown, malformed, or exceeds that which the client is permitted to request.');
+          }
           return json(200, {
             access_token: signJwt({ iss: origin, sub: params.get('username'), scope: params.get('scope') || '', exp: Math.floor(Date.now() / 1000) + 300 }),
             refresh_token: `refresh-${crypto.randomBytes(8).toString('hex')}`,

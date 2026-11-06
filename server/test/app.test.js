@@ -173,10 +173,10 @@ test('act4 refusal cases surface PingFederate errors', async (t) => {
   assert.equal(grant.status, 200);
   assert.equal(grant.body.pfError, 'invalid_grant');
 
-  // access_denied: scope outside issuance criteria
+  // access_denied: scope outside the client's allowlist -> the GRANT is refused
   const denied = await call('/api/flow/act4/access_denied', { clientId: AC.clientId, clientSecret: AC.clientSecret });
   assert.equal(denied.status, 200);
-  assert.equal(denied.body.pfError, 'access_denied');
+  assert.equal(denied.body.pfError, 'invalid_scope');
 
   // unknown case -> 404
   assert.equal((await call('/api/flow/act4/nope', {})).status, 404);
@@ -378,7 +378,7 @@ test('act4 falls back to the session-stored secret when the body omits clientSec
   // No clientSecret in the body: the session's act1/act2 secret is used.
   const denied = await call('/api/flow/act4/access_denied', { clientId: AC.clientId });
   assert.equal(denied.status, 200, JSON.stringify(denied.body));
-  assert.equal(denied.body.pfError, 'access_denied');
+  assert.equal(denied.body.pfError, 'invalid_scope');
   const target = await call('/api/flow/act4/invalid_target', { clientId: AC.clientId });
   assert.equal(target.status, 200);
   assert.equal(target.body.pfError, 'invalid_target');

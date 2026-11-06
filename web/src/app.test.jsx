@@ -80,7 +80,7 @@ describe('Act 4 expected-refusal styling', () => {
     ['wrong-client-redeem', 'unauthorized_client'],
     ['bad-resource', 'invalid_target'],
     ['forged-assertion', 'invalid_grant'],
-    ['wrong-scope', 'access_denied'],
+    ['access_denied', 'invalid_scope'],
   ];
 
   it('isExpectedRefusal accepts the server shape and rejects failures', () => {
@@ -114,7 +114,6 @@ describe('Act 4 expected-refusal styling', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<FlowTab />);
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } });
-    fireEvent.change(screen.getByLabelText('Client secret'), { target: { value: 'sec' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run Act 1' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toMatch(/password grant was refused/);
@@ -123,24 +122,23 @@ describe('Act 4 expected-refusal styling', () => {
 });
 
 describe('secret hygiene', () => {
-  it('secret inputs are type=password and nothing persists to localStorage', async () => {
+  it('the demo secret renders masked in the label and nothing persists to localStorage', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ tokens: {}, trace: [] }) });
     vi.stubGlobal('fetch', fetchMock);
     render(<FlowTab />);
-    const pass = screen.getByLabelText('Password');
-    const secret = screen.getByLabelText('Client secret');
+    const pass = screen.getByTestId('f-pass');
+    const secret = screen.getByTestId('f-csec');
+    // The client secret field is a text input showing the demo value; the password stays masked.
     expect(pass.type).toBe('password');
-    expect(secret.type).toBe('password');
     expect(pass.value).toBe('');
-    expect(secret.value).toBe('');
+    expect(secret.value).toBe('idjagAcSecret1234');
     fireEvent.change(pass, { target: { value: 'hunter2' } });
-    fireEvent.change(secret, { target: { value: 'top-secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run Act 1' }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(pass.value).toBe('hunter2'); // still in tab memory for the next act
     vi.unstubAllGlobals();
-    expect(JSON.stringify(localStorage)).not.toMatch(/hunter2|top-secret/);
-    expect(JSON.stringify(sessionStorage)).not.toMatch(/hunter2|top-secret/);
+    expect(JSON.stringify(localStorage)).not.toMatch(/hunter2|idjagAcSecret/);
+    expect(JSON.stringify(sessionStorage)).not.toMatch(/hunter2|idjagAcSecret/);
   });
 
   it('the persisted theme preference never holds secrets', () => {

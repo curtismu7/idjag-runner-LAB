@@ -2,13 +2,22 @@ import React, { useState } from 'react';
 import { api } from './api.js';
 import { Banner, Chip, ClaimsTable, TokenView, TraceSteps, ErrorBox } from './components.jsx';
 
-const ACT1_DEFAULTS = { username: 'tarun', password: '', clientId: 'idjag-ac-client', scope: 'openid profile' };
+const ACT1_DEFAULTS = { username: 'demouser', password: '', clientId: 'idjag-ac-client', scope: 'openid chat.read chat.history' };
+const ACT2_DEFAULTS = { resource: 'https://api.resource.example.com/', scope: 'chat.read chat.history' };
+// Demo credentials from the SE guide (idjag-* objects created by the setup collection). Shown
+// as first-3-chars + mask in the form; the full value is sent to your PingFederate only.
+const DEMO_CLIENTS = {
+  'idjag-ac-client': 'idjagAcSecret1234',
+  'idjag-ras-client': 'rasSecret1234',
+  'idjag-introspect': 'introSecret1234',
+};
+const maskSecret = (s) => (s ? `${s.slice(0, 3)}${'•'.repeat(Math.max(s.length - 3, 3))}` : '');
 
 function SecretInput({ id, label, value, onChange }) {
   return (
     <label htmlFor={id}>
       {label}
-      <input id={id} type="password" autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} />
+      <input id={id} type="text" autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} data-testid={id} />
     </label>
   );
 }
@@ -26,11 +35,11 @@ export default function FlowTab() {
   const [username, setUsername] = useState(ACT1_DEFAULTS.username);
   const [password, setPassword] = useState('');
   const [clientId, setClientId] = useState(ACT1_DEFAULTS.clientId);
-  const [clientSecret, setClientSecret] = useState('');
+  const [clientSecret, setClientSecret] = useState(DEMO_CLIENTS[ACT1_DEFAULTS.clientId] || '');
   const [scope, setScope] = useState(ACT1_DEFAULTS.scope);
   const [subjectKind, setSubjectKind] = useState('id_token');
-  const [resource, setResource] = useState('');
-  const [exchangeScope, setExchangeScope] = useState('');
+  const [resource, setResource] = useState(ACT2_DEFAULTS.resource);
+  const [exchangeScope, setExchangeScope] = useState(ACT2_DEFAULTS.scope);
 
   const [act1Result, setAct1Result] = useState(null);
   const [act2Result, setAct2Result] = useState(null);
@@ -53,10 +62,10 @@ export default function FlowTab() {
   };
 
   const ACT4_CASES = [
-    { name: 'wrong-client-redeem', label: 'Wrong client redeems', expect: 'unauthorized_client' },
-    { name: 'bad-resource', label: 'Wrong resource in exchange', expect: 'invalid_target' },
-    { name: 'forged-assertion', label: 'Forged assertion', expect: 'invalid_grant' },
-    { name: 'wrong-scope', label: 'Scope outside policy', expect: 'access_denied' },
+    { name: 'unauthorized_client', label: 'Wrong client redeems', expect: 'unauthorized_client' },
+    { name: 'invalid_target', label: 'Wrong resource in exchange', expect: 'invalid_target' },
+    { name: 'invalid_grant', label: 'Forged assertion', expect: 'invalid_grant' },
+    { name: 'access_denied', label: 'Scope outside client allowlist', expect: 'invalid_scope' },
   ];
 
   return (
@@ -70,10 +79,13 @@ export default function FlowTab() {
           <Field id="f-user" label="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
           <label htmlFor="f-pass">
             Password
-            <input id="f-pass" type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input id="f-pass" type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="f-pass" />
           </label>
-          <Field id="f-cid" label="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-          <SecretInput id="f-csec" label="Client secret" value={clientSecret} onChange={setClientSecret} />
+          <Field id="f-cid" label="Client ID" value={clientId} onChange={(e) => {
+            setClientId(e.target.value);
+            if (DEMO_CLIENTS[e.target.value]) setClientSecret(DEMO_CLIENTS[e.target.value]);
+          }} />
+          <SecretInput id="f-csec" label={`Client secret (demo: ${maskSecret(DEMO_CLIENTS[clientId] || '')})`} value={clientSecret} onChange={setClientSecret} />
           <Field id="f-scope" label="Scope" value={scope} onChange={(e) => setScope(e.target.value)} />
         </div>
         <p className="secret-note">Secrets stay in this tab's memory only — never saved, never sent anywhere but your PingFederate.</p>
