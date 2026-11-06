@@ -23,8 +23,17 @@ Default PF runtime: `https://cmuir-pf-acme.ping-devops.com` (idjag-* demo object
 mkdir -p ~/Development && cd ~/Development
 git clone https://github.com/curtismu7/idjag-runner-LAB.git
 cd idjag-runner-LAB
+bash scripts/check-deploy.sh    # pre-flight: docker, compose, port, network pool, PF reachable
 docker compose -f deploy/docker-compose.yml up --build -d
 ```
+
+`check-deploy.sh` needs only bash, curl and the docker CLI. It verifies Docker is installed
+and running, the compose plugin exists, the network address pool has room (the
+"all predefined address pools have been fully subnetted" error), the port is free, and the
+default PingFederate runtime is reachable — with the exact fix printed for anything that fails.
+
+**You do not need Node on your machine** — the Docker image builds the web UI and runs the
+server inside the container. Node 26 is only for the development (host-run) path below.
 
 Then open http://127.0.0.1:4780, sign in as `demouser` (only the password is needed — the demo clients are pre-filled). Another port: `HOST_PORT=4781` in front of the `docker compose` command.
 
