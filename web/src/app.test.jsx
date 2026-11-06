@@ -160,9 +160,9 @@ describe('secret hygiene', () => {
 
   it('the persisted theme preference never holds secrets', () => {
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    fireEvent.change(screen.getByTestId('theme'), { target: { value: 'dark' } });
     expect(localStorage.getItem('idjag_theme')).toBe('dark');
-    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    fireEvent.change(screen.getByTestId('theme'), { target: { value: '' } });
     expect(localStorage.getItem('idjag_theme')).toBeNull();
   });
 });
