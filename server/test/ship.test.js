@@ -109,15 +109,20 @@ test('reset script prints and exits 0 when no lab is running, refuses a non-loop
   assert.throws(() => run({ LAB_URL: 'https://evil.example:4789' }), (err) => err.status > 0);
 });
 
-test('rule 17: the diagram is diagram-studio/1 data loaded by id, validated', () => {
-  const diagram = JSON.parse(fs.readFileSync(path.join(root, 'web', 'src', 'diagrams', 'idjag-grant.json'), 'utf8'));
-  assert.equal(diagram.schema, 'diagram-studio/1');
-  assert.equal(diagram.id, 'pfidjag-jag');
-  assert.ok(diagram.nodes.length >= 4);
-  assert.ok(diagram.edges.length >= 4);
+test('rule 17: the diagrams are diagram-studio/1 data loaded by id, validated', () => {
+  for (const file of ['idjag-grant.json', 'idjagrunner-flow.json']) {
+    const diagram = JSON.parse(fs.readFileSync(path.join(root, 'web', 'src', 'diagrams', file), 'utf8'));
+    assert.equal(diagram.schema, 'diagram-studio/1', file);
+    assert.ok(diagram.nodes.length >= 4, file);
+    assert.ok(diagram.edges.length >= 4, file);
+    assert.ok(diagram.steps.length >= 3, file);
+  }
+  // The tab loads by id and offers the picker; no hand-built nodes in JSX.
   const appText = fs.readFileSync(path.join(root, 'web', 'src', 'App.jsx'), 'utf8');
-  assert.match(appText, /loadDiagram|DiagramView id="pfidjag-jag"/);
-  // The viewer loads by name only: no hand-built nodes in JSX.
+  assert.match(appText, /DiagramTab/);
+  const tabText = fs.readFileSync(path.join(root, 'web', 'src', 'DiagramTab.jsx'), 'utf8');
+  assert.match(tabText, /loadDiagram\(did\)/);
+  assert.doesNotMatch(tabText, /nodes:\s*\[\{/);
   const viewText = fs.readFileSync(path.join(root, 'web', 'src', 'DiagramView.jsx'), 'utf8');
   assert.match(viewText, /loadDiagram\(id\)/);
   assert.doesNotMatch(viewText, /nodes:\s*\[\{/);

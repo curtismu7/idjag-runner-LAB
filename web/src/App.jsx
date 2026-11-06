@@ -5,6 +5,7 @@ import TraceTab from './TraceTab.jsx';
 import InspectorTab from './InspectorTab.jsx';
 import AboutTab from './AboutTab.jsx';
 import DiagramView from './DiagramView.jsx';
+import { DiagramTab } from './DiagramTab.jsx';
 import ShelfLink from './components/ShelfLink.jsx';
 
 const TABS = [
@@ -72,7 +73,7 @@ export default function App() {
         {tab === 'flow' ? <FlowTab /> : null}
         {tab === 'trace' ? <TraceTab /> : null}
         {tab === 'jwks' ? <InspectorTab runtimeUrl={runtimeUrl} onRuntimeChanged={setRuntimeUrl} /> : null}
-        {tab === 'diagram' ? <DiagramView id="pfidjag-jag" /> : null}
+        {tab === 'diagram' ? <DiagramTab /> : null}
         {tab === 'about' ? <AboutTab /> : null}
       </main>
     </>

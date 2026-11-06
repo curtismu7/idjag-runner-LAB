@@ -1,0 +1,136 @@
+{
+  "schema": "diagram-studio/1",
+  "id": "idjagrunner-flow",
+  "title": "ID-JAG Runner: the lab's flow, step by step",
+  "lede": "One PingFederate plays two authorization servers; the MCP server is the resource.",
+  "groups": {
+    "app": {
+      "label": "This lab (the app you are driving)",
+      "color": "blue"
+    },
+    "as1": {
+      "label": "Authorization server 1 · PingFederate as IdP + enterprise issuer",
+      "color": "green"
+    },
+    "as2": {
+      "label": "Authorization server 2 · PingFederate as resource AS",
+      "color": "amber"
+    },
+    "mcp": {
+      "label": "Resource · MCP server",
+      "color": "grey"
+    }
+  },
+  "nodes": [
+    {
+      "id": "app",
+      "group": "app",
+      "label": "ID-JAG Runner (this app)",
+      "sub": [
+        "stands in for the client app",
+        "holds every token in this tab only"
+      ],
+      "x": 0,
+      "y": 220
+    },
+    {
+      "id": "as1",
+      "group": "as1",
+      "label": "Authorization server 1 · PingFederate",
+      "sub": [
+        "IdP role: signs the user in (demouser)",
+        "issues access, refresh and ID tokens",
+        "enterprise issuer: mints the ID-JAG",
+        "policy: idjagpolicy"
+      ],
+      "x": 520,
+      "y": 0
+    },
+    {
+      "id": "as2",
+      "group": "as2",
+      "label": "Authorization server 2 · PingFederate",
+      "sub": [
+        "resource AS role: redeems the ID-JAG",
+        "jwt-bearer grant · client idjag-ras-client",
+        "issues the MCP access token"
+      ],
+      "x": 520,
+      "y": 440
+    },
+    {
+      "id": "mcp",
+      "group": "mcp",
+      "label": "MCP server",
+      "sub": [
+        "the resource that holds the data",
+        "accepts the access token from AS 2",
+        "introspection stands in for it here"
+      ],
+      "x": 1040,
+      "y": 440
+    }
+  ],
+  "edges": [
+    {
+      "source": "app",
+      "target": "as1",
+      "label": "1-2. password grant · refresh grant"
+    },
+    {
+      "source": "app",
+      "target": "as1",
+      "label": "3. token exchange → ID-JAG"
+    },
+    {
+      "source": "app",
+      "target": "as2",
+      "label": "4. jwt-bearer: the ID-JAG"
+    },
+    {
+      "source": "as2",
+      "target": "app",
+      "label": "5. access token"
+    },
+    {
+      "source": "app",
+      "target": "mcp",
+      "label": "6. call with the access token"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Sign in at authorization server 1 (PingFederate as IdP)",
+      "what": "The app sends demouser's password grant to PingFederate's token endpoint. AS 1 validates the credentials and issues the access token, refresh token and — on the refresh grant — the ID token.",
+      "why": "Everything downstream starts from tokens AS 1 issued.",
+      "edges": [
+        0
+      ]
+    },
+    {
+      "title": "Authorization server 1 mints the ID-JAG",
+      "what": "The app exchanges its ID token (or refresh or access token) at the same PingFederate, now in its enterprise-issuer role. It validates the subject token, applies the idjagpolicy checks, and signs an ID-JAG — a short-lived grant naming the user, this app, and the target resource server.",
+      "why": "The ID-JAG is a signed pass from AS 1: no second login, and the IdP stays in control of who may reach what.",
+      "edges": [
+        1
+      ]
+    },
+    {
+      "title": "Authorization server 2 redeems the ID-JAG",
+      "what": "The app hands the ID-JAG to the second authorization server — the resource AS role — as a jwt-bearer assertion. AS 2 downloads AS 1's JWKS, checks the signature, issuer, audience and expiry, and issues its own access token for the MCP resource.",
+      "why": "No password, no consent screen: trust flows from the signature, and AS 2 issues a token for its own resource.",
+      "edges": [
+        2,
+        3
+      ]
+    },
+    {
+      "title": "The MCP server would receive the call",
+      "what": "The app would call the MCP server with the access token AS 2 issued. In this lab introspection stands in for the API: it shows exactly what the MCP server would learn from the token (active, sub, scope, client_id).",
+      "why": "The MCP server trusts only tokens AS 2 issued — the same token type a real gateway or API would enforce.",
+      "edges": [
+        4
+      ]
+    }
+  ]
+}
