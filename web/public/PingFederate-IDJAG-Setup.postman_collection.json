@@ -1,0 +1,3262 @@
+{
+  "info": {
+    "name": "PingFederate ID-JAG - SETUP (admin API) + verify",
+    "description": "# PingFederate ID-JAG setup collection (for Claude Code or Postman)\n\nWires up a complete **ID-JAG (Identity Assertion JWT Authorization Grant)** demo on one PingFederate 13.1+ instance\nthrough the PF **admin API**, then verifies it end to end. PF plays both roles: the enterprise IdP that mints the\nID-JAG (token exchange) and the resource authorization server that redeems it (JWT bearer). Everything created is\nprefixed with `{{prefix}}` and can be removed with folder **11. Teardown**.\n\n## If you are Claude Code: how to use this file\nRead this whole description first, then do the following.\n\n1. **Ask the engineer for these values** (do not guess): PF admin base URL (`pf_admin`, e.g. https://host:9999),\n   admin username/password (`admin_user`, `admin_pass`), PF runtime base URL (`pf_runtime`, e.g. https://host:9031).\n   Everything else has a working default. Optionally let them pick `prefix` (default `idjag`).\n   A brand-new PF install must have its license accepted and the default `Administrator` / `2Federate` password changed\n   in the admin console before the API will respond (`license_agreement_not_accepted` means this has not happened yet).\n2. **Run the folders in order, 0 to 8, then 10** (skip `0-optional` unless 0c found no signing key). Folder 9 is destructive, see below.\n   Preferred runner: `newman run <this-file> --insecure --folder \"<folder name>\" --env-var pf_admin=... --env-var admin_pass=...`\n   (newman may not be installed; if not, execute each request yourself with curl, in order).\n   When executing by hand: every admin request needs `-u user:pass`, header `X-XSRF-Header: PingFederate`,\n   `Content-Type: application/json`, and `-k` for self-signed certs. Each request's **test script** shows what to check and\n   which collection variable it sets (`signing_key_id`, `signing_cert_b64`, `jwks_escaped`, `issuer`, tokens). Apply those\n   by hand and substitute `{{var}}` placeholders in later requests.\n3. **Idempotence:** creating something that already exists returns 4xx with \"already/in use/exists\". That is fine, move on,\n   but tell the engineer. If an existing object has the same ID but a different definition, ask before changing it.\n4. **Folder 9 replaces the PF default authentication policy and turns on IdP authentication policies.** That can break\n   the engineer's existing logins. Before running it: run request 9a (backup), tell the engineer exactly what will be\n   replaced, and get an explicit yes. If they decline, skip folder 9 and tell them to point their own policy at the\n   authentication policy contract `{{prefix}}apc` (the Verify folder still works because it uses the password grant).\n5. **Cluster note:** call the admin API on the console (admin) node only.\n6. **Report honestly:** list what was created, what already existed, what failed (with the response body), and the result of\n   each Verify request. Do not claim success unless folder 10 passes. Do not print passwords/secrets back unless asked.\n7. **Hand over:** tell the engineer the client IDs/secrets, the test user, and how to use `10. Verify` / the Postman demo.\n\n## What gets created (all prefixed)\nScopes; Password Credential Validator (+ test user); Authentication Policy Contract; HTML Form adapter; two reference-token\nAccess Token Managers (user side + resource-AS side); grant and token mappings; OIDC policy; three token processors\n(refresh token, access token, ID token); token exchange processor policy; **OAuth Token Exchange SP connection** with\nID-JAG enabled (entity ID = the PF issuer); **IdP connection with OAuth assertion grant** (trusts the PF issuer, signing cert\nimported); an auth-code/password/refresh/token-exchange client; a resource-AS client (extension grant); an introspection client.\n\n## Known PF admin API quirks (already handled in the bodies, listed so you can debug)\n- Token exchange policy mapping source type is `SUBJECT_TOKEN`; SP connection contract core attribute is `TOKEN_SUBJECT`\n  fulfilled from `TOKEN_EXCHANGE_PROCESSOR_POLICY`; IdP OAuth assertion contract core attribute is `TOKEN_SUBJECT`\n  (use extended attribute `sub` mapped from `ASSERTION`).\n- Refresh Token Processor core attributes: `TOKEN_SUBJECT, client_id, expires_at, scope`.\n- PCV-context access token mapping uses context type `PCV`; APC uses `AUTHENTICATION_POLICY_CONTRACT`; the exchange uses `TOKEN_EXCHANGE_PROCESSOR_POLICY`.\n- Persistent grant contract only needs `USER_KEY` in the resource-owner mapping.\n- PF does not return an ID token on the password grant; it does on the refresh grant (OIDC policy `returnIdTokenOnRefreshGrant`).\n- PF may not trust its own self-signed cert, so the ID token processor embeds the JWKS instead of fetching `/pf/JWKS`.\n- Authentication policies must be enabled (`enableIdpAuthnSelection`) or the authorize endpoint says \"no authentication methods available for OAuth\".\n- ID-JAG lifetime is about 5 minutes. PF accepted a replayed ID-JAG in testing (no single-use enforcement observed).\n- The ID-JAG produced in testing had `typ: oauth-id-jag+jwt`, `iss`, `aud`, `sub`, `resource`; no `client_id` claim was observed.\n\n## Prompt the engineer can paste to Claude Code\n> Use the attached Postman collection `PingFederate-IDJAG-Setup.postman_collection.json` to set up ID-JAG on my PingFederate.\n> Admin console: https://<host>:9999, admin user `<user>` / `<password>`, runtime https://<host>:9031.\n> Read the collection description first, run the folders in order, ask me before the authentication-policy step, and\n> finish by running the Verify folder and showing me the results.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      {
+        "key": "username",
+        "value": "{{admin_user}}",
+        "type": "string"
+      },
+      {
+        "key": "password",
+        "value": "{{admin_pass}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "pf_admin",
+      "value": "https://localhost:9999"
+    },
+    {
+      "key": "admin_user",
+      "value": "Administrator"
+    },
+    {
+      "key": "admin_pass",
+      "value": "CHANGE_ME"
+    },
+    {
+      "key": "pf_runtime",
+      "value": "https://localhost:9031"
+    },
+    {
+      "key": "prefix",
+      "value": "idjag"
+    },
+    {
+      "key": "test_user",
+      "value": "tarun"
+    },
+    {
+      "key": "test_pass",
+      "value": "Test1234!"
+    },
+    {
+      "key": "ac_client_id",
+      "value": "{{prefix}}-ac-client"
+    },
+    {
+      "key": "ac_secret",
+      "value": "idjagAcSecret1234"
+    },
+    {
+      "key": "ras_client_id",
+      "value": "{{prefix}}-ras-client"
+    },
+    {
+      "key": "ras_secret",
+      "value": "rasSecret1234"
+    },
+    {
+      "key": "introspect_client_id",
+      "value": "{{prefix}}-introspect"
+    },
+    {
+      "key": "introspect_secret",
+      "value": "introSecret1234"
+    },
+    {
+      "key": "resource",
+      "value": "https://api.resource.example.com/"
+    },
+    {
+      "key": "callback_url",
+      "value": "https://oauth.pstmn.io/v1/callback"
+    },
+    {
+      "key": "scope",
+      "value": "openid offline_access chat.read"
+    },
+    {
+      "key": "exchange_scope",
+      "value": "chat.read chat.history"
+    },
+    {
+      "key": "issuer",
+      "value": ""
+    },
+    {
+      "key": "signing_key_id",
+      "value": ""
+    },
+    {
+      "key": "signing_cert_b64",
+      "value": ""
+    },
+    {
+      "key": "jwks_escaped",
+      "value": ""
+    },
+    {
+      "key": "pf_version",
+      "value": ""
+    },
+    {
+      "key": "authn_policy_backup",
+      "value": ""
+    },
+    {
+      "key": "authn_settings_backup",
+      "value": ""
+    },
+    {
+      "key": "existing_policy_trees",
+      "value": ""
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "id_token",
+      "value": ""
+    },
+    {
+      "key": "idjag",
+      "value": ""
+    },
+    {
+      "key": "ras_access_token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Preflight (read-only)",
+      "item": [
+        {
+          "name": "0a. PF version (needs 13.1+)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/version"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF 13.1 or newer\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 300));",
+                  "  var v = pm.response.json().version; pm.collectionVariables.set(\"pf_version\", v);",
+                  "  var p = v.split(\".\").map(Number);",
+                  "  if (p[0] < 13 || (p[0] === 13 && p[1] < 1)) throw new Error(\"ID-JAG needs PingFederate 13.1+, found \" + v);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0b. Server settings (OAuth role + issuer)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/serverSettings"
+            },
+            "description": "Sets `issuer` = federationInfo.baseUrl (this is the ID-JAG `iss` and the `aud` we request). Fails if the OAuth role is off."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"OAuth role enabled; issuer captured\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code);",
+                  "  var j = pm.response.json();",
+                  "  if (!(j.rolesAndProtocols && j.rolesAndProtocols.oauthRole && j.rolesAndProtocols.oauthRole.enableOauth)) throw new Error(\"OAuth role is disabled. Ask the engineer before enabling it (Server Settings > Roles & Protocols).\");",
+                  "  var base = ((j.federationInfo && j.federationInfo.baseUrl) || \"\").replace(/\\/+$/, \"\");",
+                  "  if (!base) throw new Error(\"federationInfo.baseUrl is empty; set Base URL in Server Settings first.\");",
+                  "  pm.collectionVariables.set(\"issuer\", base);",
+                  "  console.log(\"issuer = \" + base);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0c. List signing key pairs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/keyPairs/signing"
+            },
+            "description": "Picks the first VALID RSA key as `signing_key_id`. If none, `signing_key_id` is empty: run folder 0-optional (0d)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"signing key chosen (or none)\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code);",
+                  "  var k = (pm.response.json().items || []).filter(function (x) { return x.status === \"VALID\" && x.keyAlgorithm === \"RSA\"; })[0];",
+                  "  pm.collectionVariables.set(\"signing_key_id\", k ? k.id : \"\");",
+                  "  console.log(k ? \"signing_key_id = \" + k.id + \" (\" + k.subjectDN + \")\" : \"no valid RSA signing key; run folder 0-optional\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0e. Signing certificate (for the IdP connection)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/keyPairs/signing/{{signing_key_id}}/certificate"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"cert captured\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 300));",
+                  "  var b64 = pm.response.text().replace(/-----[A-Z ]+-----/g, \"\").replace(/\\s+/g, \"\");",
+                  "  if (b64.length < 200) throw new Error(\"certificate looks empty\");",
+                  "  pm.collectionVariables.set(\"signing_cert_b64\", b64);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0f. PF JWKS (embedded in the ID token processor)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{pf_runtime}}/pf/JWKS"
+            },
+            "description": "Runtime endpoint (no auth). Stores the JWKS JSON, JSON-escaped, as `jwks_escaped`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"JWKS captured\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \" from \" + \"/pf/JWKS (check pf_runtime)\");",
+                  "  var j = JSON.parse(pm.response.text()); if (!j.keys || !j.keys.length) throw new Error(\"JWKS has no keys yet\");",
+                  "  pm.collectionVariables.set(\"jwks_escaped\", JSON.stringify(JSON.stringify(j)).slice(1, -1));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "0g. Back up current authentication policy + settings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/default"
+            },
+            "description": "Saves the CURRENT default authentication policy into `authn_policy_backup`. Claude: also write it to a local file before folder 9."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"backup captured\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code);",
+                  "  pm.collectionVariables.set(\"authn_policy_backup\", pm.response.text());",
+                  "  var j = pm.response.json(); var n = (j.authnSelectionTrees || []).length;",
+                  "  pm.collectionVariables.set(\"existing_policy_trees\", String(n));",
+                  "  console.log(\"default authentication policy currently has \" + n + \" tree(s): \" + (j.authnSelectionTrees || []).map(function (t) { return t.name; }).join(\", \"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0h. Back up authentication policy settings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/settings"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"settings backup captured\", function () {",
+                  "  if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code);",
+                  "  pm.collectionVariables.set(\"authn_settings_backup\", pm.response.text());",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Read-only checks. Captures issuer, signing key, certificate, JWKS and backs up the current authentication policy."
+    },
+    {
+      "name": "0-optional. Generate signing key (ONLY if 0c found none)",
+      "item": [
+        {
+          "name": "0d. Generate RSA signing key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/keyPairs/signing/generate"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}signing\",\n  \"commonName\": \"{{prefix}}-idp\",\n  \"organization\": \"demo\",\n  \"country\": \"US\",\n  \"validDays\": 365,\n  \"keySize\": 2048,\n  \"keyAlgorithm\": \"RSA\",\n  \"signatureAlgorithm\": \"SHA256withRSA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"key generated\", function () {",
+                  "  var c = pm.response.code; var t = pm.response.text();",
+                  "  if (c === 201 || c === 200) { pm.collectionVariables.set(\"signing_key_id\", pm.response.json().id); return; }",
+                  "  if (/already|in use|exists/i.test(t)) { pm.collectionVariables.set(\"signing_key_id\", pm.variables.get(\"prefix\") + \"signing\"); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 400));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run only when 0c reported no valid RSA signing key. Skip otherwise: it would add an unneeded key pair to the engineer's PF."
+    },
+    {
+      "name": "1. Scopes",
+      "item": [
+        {
+          "name": "1. scope openid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"openid\",\n  \"description\": \"openid\",\n  \"dynamic\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1. scope profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"profile\",\n  \"description\": \"profile\",\n  \"dynamic\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1. scope email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"email\",\n  \"description\": \"email\",\n  \"dynamic\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1. scope offline_access",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"offline_access\",\n  \"description\": \"offline_access\",\n  \"dynamic\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1. scope chat.read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"chat.read\",\n  \"description\": \"chat.read\",\n  \"dynamic\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1. scope chat.history",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"chat.history\",\n  \"description\": \"chat.history\",\n  \"dynamic\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Login components (PCV, APC, HTML Form adapter)",
+      "item": [
+        {
+          "name": "2a. Password Credential Validator + test user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/passwordCredentialValidators"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}pcv\",\n  \"name\": \"IDJAG Test PCV\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"org.sourceid.saml20.domain.SimpleUsernamePasswordCredentialValidator\"\n  },\n  \"configuration\": {\n    \"tables\": [\n      {\n        \"name\": \"Users\",\n        \"rows\": [\n          {\n            \"fields\": [\n              {\n                \"name\": \"Username\",\n                \"value\": \"{{test_user}}\"\n              },\n              {\n                \"name\": \"Password\",\n                \"value\": \"{{test_pass}}\"\n              },\n              {\n                \"name\": \"Confirm Password\",\n                \"value\": \"{{test_pass}}\"\n              },\n              {\n                \"name\": \"Relax Password Requirements\",\n                \"value\": \"true\"\n              }\n            ],\n            \"defaultRow\": false\n          }\n        ]\n      }\n    ],\n    \"fields\": []\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"username\"\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2b. Authentication Policy Contract",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicyContracts"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}apc\",\n  \"name\": \"IDJAG APC\",\n  \"coreAttributes\": [\n    {\n      \"name\": \"subject\"\n    }\n  ],\n  \"extendedAttributes\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2c. HTML Form adapter",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/adapters"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}form\",\n  \"name\": \"IDJAG HTML Form\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"com.pingidentity.adapters.htmlform.idp.HtmlFormIdpAuthnAdapter\"\n  },\n  \"configuration\": {\n    \"tables\": [\n      {\n        \"name\": \"Credential Validators\",\n        \"rows\": [\n          {\n            \"fields\": [\n              {\n                \"name\": \"Password Credential Validator Instance\",\n                \"value\": \"{{prefix}}pcv\"\n              }\n            ],\n            \"defaultRow\": false\n          }\n        ]\n      }\n    ],\n    \"fields\": [\n      {\n        \"name\": \"Challenge Retries\",\n        \"value\": \"3\"\n      },\n      {\n        \"name\": \"Login Template\",\n        \"value\": \"html.form.login.template.html\"\n      },\n      {\n        \"name\": \"Logout Template\",\n        \"value\": \"idp.logout.success.page.template.html\"\n      },\n      {\n        \"name\": \"Session State\",\n        \"value\": \"None\"\n      }\n    ]\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"username\",\n        \"pseudonym\": true,\n        \"masked\": false\n      }\n    ],\n    \"extendedAttributes\": []\n  },\n  \"attributeMapping\": {\n    \"attributeSources\": [],\n    \"attributeContractFulfillment\": {\n      \"username\": {\n        \"source\": {\n          \"type\": \"ADAPTER\"\n        },\n        \"value\": \"username\"\n      }\n    },\n    \"issuanceCriteria\": {\n      \"conditionalCriteria\": []\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Access token managers",
+      "item": [
+        {
+          "name": "3a. ATM for the user/IdP side",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenManagers"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}atm\",\n  \"name\": \"IDJAG ATM\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"org.sourceid.oauth20.token.plugin.impl.ReferenceBearerAccessTokenManagementPlugin\"\n  },\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"Token Length\",\n        \"value\": \"28\"\n      },\n      {\n        \"name\": \"Token Lifetime\",\n        \"value\": \"120\"\n      },\n      {\n        \"name\": \"Lifetime Extension Policy\",\n        \"value\": \"NONE\"\n      },\n      {\n        \"name\": \"Lifetime Extension Threshold Percentage\",\n        \"value\": \"30\"\n      },\n      {\n        \"name\": \"Mode for Synchronous RPC\",\n        \"value\": \"3\"\n      },\n      {\n        \"name\": \"RPC Timeout\",\n        \"value\": \"500\"\n      },\n      {\n        \"name\": \"Expand Scope Groups\",\n        \"value\": \"false\"\n      }\n    ]\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [],\n    \"extendedAttributes\": [\n      {\n        \"name\": \"sub\",\n        \"multiValued\": false\n      }\n    ]\n  },\n  \"selectionSettings\": {\n    \"resourceUris\": []\n  },\n  \"accessControlSettings\": {\n    \"restrictClients\": false,\n    \"allowedClients\": []\n  },\n  \"sessionValidationSettings\": {\n    \"checkValidAuthnSession\": false,\n    \"checkSessionRevocationStatus\": false,\n    \"updateAuthnSessionActivity\": false,\n    \"includeSessionId\": false\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3b. ATM for the resource-AS side",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenManagers"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}rasatm\",\n  \"name\": \"IDJAG RAS ATM\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"org.sourceid.oauth20.token.plugin.impl.ReferenceBearerAccessTokenManagementPlugin\"\n  },\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"Token Length\",\n        \"value\": \"28\"\n      },\n      {\n        \"name\": \"Token Lifetime\",\n        \"value\": \"120\"\n      },\n      {\n        \"name\": \"Lifetime Extension Policy\",\n        \"value\": \"NONE\"\n      },\n      {\n        \"name\": \"Lifetime Extension Threshold Percentage\",\n        \"value\": \"30\"\n      },\n      {\n        \"name\": \"Mode for Synchronous RPC\",\n        \"value\": \"3\"\n      },\n      {\n        \"name\": \"RPC Timeout\",\n        \"value\": \"500\"\n      },\n      {\n        \"name\": \"Expand Scope Groups\",\n        \"value\": \"false\"\n      }\n    ]\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [],\n    \"extendedAttributes\": [\n      {\n        \"name\": \"sub\",\n        \"multiValued\": false\n      }\n    ]\n  },\n  \"selectionSettings\": {\n    \"resourceUris\": [\n      \"{{resource}}\"\n    ]\n  },\n  \"accessControlSettings\": {\n    \"restrictClients\": false,\n    \"allowedClients\": []\n  },\n  \"sessionValidationSettings\": {\n    \"checkValidAuthnSession\": false,\n    \"checkSessionRevocationStatus\": false,\n    \"updateAuthnSessionActivity\": false,\n    \"includeSessionId\": false\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Grant and access token mappings",
+      "item": [
+        {
+          "name": "4a. Password grant: PCV -> persistent grant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/resourceOwnerCredentialsMappings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}pcv\",\n  \"passwordValidatorRef\": {\n    \"id\": \"{{prefix}}pcv\"\n  },\n  \"attributeSources\": [],\n  \"attributeContractFulfillment\": {\n    \"USER_KEY\": {\n      \"source\": {\n        \"type\": \"PASSWORD_CREDENTIAL_VALIDATOR\"\n      },\n      \"value\": \"username\"\n    }\n  },\n  \"issuanceCriteria\": {\n    \"conditionalCriteria\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4b. Browser login: APC -> persistent grant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authenticationPolicyContractMappings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}apc\",\n  \"authenticationPolicyContractRef\": {\n    \"id\": \"{{prefix}}apc\"\n  },\n  \"attributeSources\": [],\n  \"attributeContractFulfillment\": {\n    \"USER_KEY\": {\n      \"source\": {\n        \"type\": \"AUTHENTICATION_POLICY_CONTRACT\"\n      },\n      \"value\": \"subject\"\n    },\n    \"USER_NAME\": {\n      \"source\": {\n        \"type\": \"AUTHENTICATION_POLICY_CONTRACT\"\n      },\n      \"value\": \"subject\"\n    }\n  },\n  \"issuanceCriteria\": {\n    \"conditionalCriteria\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4c. Access token mapping: PCV context",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenMappings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"context\": {\n    \"type\": \"PCV\",\n    \"contextRef\": {\n      \"id\": \"{{prefix}}pcv\"\n    }\n  },\n  \"accessTokenManagerRef\": {\n    \"id\": \"{{prefix}}atm\"\n  },\n  \"attributeSources\": [],\n  \"attributeContractFulfillment\": {\n    \"sub\": {\n      \"source\": {\n        \"type\": \"PASSWORD_CREDENTIAL_VALIDATOR\"\n      },\n      \"value\": \"username\"\n    }\n  },\n  \"issuanceCriteria\": {\n    \"conditionalCriteria\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4d. Access token mapping: APC context",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenMappings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"context\": {\n    \"type\": \"AUTHENTICATION_POLICY_CONTRACT\",\n    \"contextRef\": {\n      \"id\": \"{{prefix}}apc\"\n    }\n  },\n  \"accessTokenManagerRef\": {\n    \"id\": \"{{prefix}}atm\"\n  },\n  \"attributeSources\": [],\n  \"attributeContractFulfillment\": {\n    \"sub\": {\n      \"source\": {\n        \"type\": \"AUTHENTICATION_POLICY_CONTRACT\"\n      },\n      \"value\": \"subject\"\n    }\n  },\n  \"issuanceCriteria\": {\n    \"conditionalCriteria\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. OpenID Connect policy",
+      "item": [
+        {
+          "name": "5a. OIDC policy (ID token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/openIdConnect/policies"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}oidc\",\n  \"name\": \"IDJAG OIDC Policy\",\n  \"accessTokenManagerRef\": {\n    \"id\": \"{{prefix}}atm\"\n  },\n  \"idTokenLifetime\": 5,\n  \"includeSriInIdToken\": true,\n  \"includeUserInfoInIdToken\": false,\n  \"includeSHashInIdToken\": false,\n  \"includeX5tInIdToken\": false,\n  \"returnIdTokenOnRefreshGrant\": true,\n  \"reissueIdTokenInHybridFlow\": false,\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"sub\"\n      }\n    ],\n    \"extendedAttributes\": []\n  },\n  \"attributeMapping\": {\n    \"attributeSources\": [],\n    \"attributeContractFulfillment\": {\n      \"sub\": {\n        \"source\": {\n          \"type\": \"OAUTH_PERSISTENT_GRANT\"\n        },\n        \"value\": \"USER_KEY\"\n      }\n    },\n    \"issuanceCriteria\": {\n      \"conditionalCriteria\": []\n    }\n  },\n  \"scopeAttributeMappings\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Token exchange (IdP side: mint the ID-JAG)",
+      "item": [
+        {
+          "name": "6a. Token processor: refresh token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/tokenProcessors"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}rtp\",\n  \"name\": \"IDJAG Refresh Token Processor\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"org.sourceid.wstrust.processor.oauth.RefreshTokenTokenProcessor\"\n  },\n  \"configuration\": {\n    \"fields\": []\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"TOKEN_SUBJECT\"\n      },\n      {\n        \"name\": \"client_id\"\n      },\n      {\n        \"name\": \"expires_at\"\n      },\n      {\n        \"name\": \"scope\"\n      }\n    ],\n    \"maskOgnlValues\": false\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6b. Token processor: access token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/tokenProcessors"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}atp\",\n  \"name\": \"IDJAG Access Token Processor\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"org.sourceid.wstrust.processor.oauth.BearerAccessTokenTokenProcessor\"\n  },\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"Access Token Manager\",\n        \"value\": \"{{prefix}}atm\"\n      },\n      {\n        \"name\": \"Scope value as single string\",\n        \"value\": \"false\"\n      }\n    ]\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"aud\"\n      },\n      {\n        \"name\": \"authorization_details\"\n      },\n      {\n        \"name\": \"client_id\"\n      },\n      {\n        \"name\": \"expires_at\"\n      },\n      {\n        \"name\": \"iss\"\n      },\n      {\n        \"name\": \"scope\"\n      }\n    ],\n    \"extendedAttributes\": [\n      {\n        \"name\": \"sub\"\n      }\n    ],\n    \"maskOgnlValues\": false\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6c. Token processor: ID token (JWT 2.0, embedded JWKS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/tokenProcessors"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}itp\",\n  \"name\": \"IDJAG ID Token Processor\",\n  \"pluginDescriptorRef\": {\n    \"id\": \"com.pingidentity.pf.tokenprocessors.jwt.JwtTokenProcessor\"\n  },\n  \"configuration\": {\n    \"tables\": [\n      {\n        \"name\": \"Allowed Issuers\",\n        \"rows\": [\n          {\n            \"fields\": [\n              {\n                \"name\": \"Issuer\",\n                \"value\": \"{{issuer}}\"\n              },\n              {\n                \"name\": \"JWKS URL\",\n                \"value\": \"\"\n              },\n              {\n                \"name\": \"JWKS\",\n                \"value\": \"{{jwks_escaped}}\"\n              }\n            ],\n            \"defaultRow\": false\n          }\n        ]\n      },\n      {\n        \"name\": \"Allowed Audiences\",\n        \"rows\": [\n          {\n            \"fields\": [\n              {\n                \"name\": \"Audience\",\n                \"value\": \"{{ac_client_id}}\"\n              }\n            ],\n            \"defaultRow\": false\n          }\n        ]\n      }\n    ],\n    \"fields\": [\n      {\n        \"name\": \"Require Audience\",\n        \"value\": \"true\"\n      },\n      {\n        \"name\": \"Require Expiration Time\",\n        \"value\": \"true\"\n      },\n      {\n        \"name\": \"Require Issued At Time\",\n        \"value\": \"false\"\n      },\n      {\n        \"name\": \"Require Not Before Time\",\n        \"value\": \"false\"\n      },\n      {\n        \"name\": \"Default Cache Duration\",\n        \"value\": \"720\"\n      },\n      {\n        \"name\": \"Allowed Clock Skew\",\n        \"value\": \"30\"\n      }\n    ]\n  },\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"sub\"\n      }\n    ],\n    \"extendedAttributes\": [],\n    \"maskOgnlValues\": false\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Needs `jwks_escaped` from 0f. The allowed audience is the auth-code client id (the ID token `aud`)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6d. Token exchange processor policy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/tokenExchange/processor/policies"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}policy\",\n  \"name\": \"IDJAG Token Policy\",\n  \"actorTokenRequired\": false,\n  \"attributeContract\": {\n    \"coreAttributes\": [\n      {\n        \"name\": \"subject\"\n      }\n    ],\n    \"extendedAttributes\": []\n  },\n  \"processorMappings\": [\n    {\n      \"subjectTokenType\": \"urn:ietf:params:oauth:token-type:refresh_token\",\n      \"subjectTokenProcessor\": {\n        \"id\": \"{{prefix}}rtp\"\n      },\n      \"attributeSources\": [],\n      \"attributeContractFulfillment\": {\n        \"subject\": {\n          \"source\": {\n            \"type\": \"SUBJECT_TOKEN\"\n          },\n          \"value\": \"TOKEN_SUBJECT\"\n        }\n      },\n      \"issuanceCriteria\": {\n        \"conditionalCriteria\": []\n      }\n    },\n    {\n      \"subjectTokenType\": \"urn:ietf:params:oauth:token-type:access_token\",\n      \"subjectTokenProcessor\": {\n        \"id\": \"{{prefix}}atp\"\n      },\n      \"attributeSources\": [],\n      \"attributeContractFulfillment\": {\n        \"subject\": {\n          \"source\": {\n            \"type\": \"SUBJECT_TOKEN\"\n          },\n          \"value\": \"sub\"\n        }\n      },\n      \"issuanceCriteria\": {\n        \"conditionalCriteria\": []\n      }\n    },\n    {\n      \"subjectTokenType\": \"urn:ietf:params:oauth:token-type:id_token\",\n      \"subjectTokenProcessor\": {\n        \"id\": \"{{prefix}}itp\"\n      },\n      \"attributeSources\": [],\n      \"attributeContractFulfillment\": {\n        \"subject\": {\n          \"source\": {\n            \"type\": \"SUBJECT_TOKEN\"\n          },\n          \"value\": \"sub\"\n        }\n      },\n      \"issuanceCriteria\": {\n        \"conditionalCriteria\": []\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6e. Access token mapping: token-exchange context",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenMappings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"context\": {\n    \"type\": \"TOKEN_EXCHANGE_PROCESSOR_POLICY\",\n    \"contextRef\": {\n      \"id\": \"{{prefix}}policy\"\n    }\n  },\n  \"accessTokenManagerRef\": {\n    \"id\": \"{{prefix}}atm\"\n  },\n  \"attributeSources\": [],\n  \"attributeContractFulfillment\": {\n    \"sub\": {\n      \"source\": {\n        \"type\": \"TOKEN_EXCHANGE_PROCESSOR_POLICY\"\n      },\n      \"value\": \"subject\"\n    }\n  },\n  \"issuanceCriteria\": {\n    \"conditionalCriteria\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6f. SP connection: OAuth Token Exchange with ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/spConnections"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}sp\",\n  \"name\": \"IDJAG Resource AS\",\n  \"entityId\": \"{{issuer}}\",\n  \"active\": true,\n  \"connectionTargetType\": \"STANDARD\",\n  \"type\": \"SP\",\n  \"loggingMode\": \"STANDARD\",\n  \"credentials\": {\n    \"signingSettings\": {\n      \"signingKeyPairRef\": {\n        \"id\": \"{{signing_key_id}}\"\n      },\n      \"algorithm\": \"SHA256withRSA\",\n      \"includeCertInSignature\": false,\n      \"includeRawKeyInSignature\": false\n    }\n  },\n  \"oauthTokenExchangeSettings\": {\n    \"resourceUris\": [\n      \"{{resource}}\"\n    ],\n    \"idJagEnabled\": true,\n    \"minutesBefore\": 5,\n    \"minutesAfter\": 5,\n    \"attributeContract\": {\n      \"coreAttributes\": [\n        {\n          \"name\": \"TOKEN_SUBJECT\"\n        }\n      ],\n      \"extendedAttributes\": []\n    },\n    \"processorPolicyMappings\": [\n      {\n        \"processorPolicyRef\": {\n          \"id\": \"{{prefix}}policy\"\n        },\n        \"attributeSources\": [],\n        \"attributeContractFulfillment\": {\n          \"TOKEN_SUBJECT\": {\n            \"source\": {\n              \"type\": \"TOKEN_EXCHANGE_PROCESSOR_POLICY\"\n            },\n            \"value\": \"subject\"\n          }\n        },\n        \"issuanceCriteria\": {\n          \"conditionalCriteria\": []\n        }\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Entity ID = the issuer, so the ID-JAG `aud` is this same PF acting as the resource AS. Use a different value if the resource AS is a separate system."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Resource AS side (redeem the ID-JAG)",
+      "item": [
+        {
+          "name": "7a. IdP connection: OAuth assertion grant (JWT bearer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/sp/idpConnections"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{prefix}}idp\",\n  \"name\": \"IDJAG Issuer\",\n  \"type\": \"IDP\",\n  \"entityId\": \"{{issuer}}\",\n  \"active\": true,\n  \"loggingMode\": \"STANDARD\",\n  \"credentials\": {\n    \"certs\": [\n      {\n        \"x509File\": {\n          \"fileData\": \"{{signing_cert_b64}}\"\n        },\n        \"activeVerificationCert\": true,\n        \"primaryVerificationCert\": true,\n        \"secondaryVerificationCert\": false,\n        \"encryptionCert\": false\n      }\n    ]\n  },\n  \"idpOAuthGrantAttributeMapping\": {\n    \"idpOAuthAttributeContract\": {\n      \"coreAttributes\": [],\n      \"extendedAttributes\": [\n        {\n          \"name\": \"sub\"\n        }\n      ]\n    },\n    \"accessTokenManagerMappings\": [\n      {\n        \"accessTokenManagerRef\": {\n          \"id\": \"{{prefix}}rasatm\"\n        },\n        \"attributeSources\": [],\n        \"attributeContractFulfillment\": {\n          \"sub\": {\n            \"source\": {\n              \"type\": \"ASSERTION\"\n            },\n            \"value\": \"sub\"\n          }\n        },\n        \"issuanceCriteria\": {\n          \"conditionalCriteria\": []\n        }\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Trusts ID-JAGs whose `iss` equals {{issuer}} and that are signed by the imported certificate."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. OAuth clients",
+      "item": [
+        {
+          "name": "8a. Requesting-app client (auth code, password, refresh, token exchange)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/clients"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clientId\": \"{{ac_client_id}}\",\n  \"name\": \"IDJAG Requesting App\",\n  \"enabled\": true,\n  \"redirectUris\": [\n    \"{{callback_url}}\",\n    \"https://oauth.pstmn.io/v1/browser-callback\"\n  ],\n  \"grantTypes\": [\n    \"AUTHORIZATION_CODE\",\n    \"REFRESH_TOKEN\",\n    \"TOKEN_EXCHANGE\",\n    \"RESOURCE_OWNER_CREDENTIALS\"\n  ],\n  \"clientAuth\": {\n    \"type\": \"SECRET\",\n    \"secret\": \"{{ac_secret}}\"\n  },\n  \"restrictScopes\": false,\n  \"bypassApprovalPage\": true,\n  \"defaultAccessTokenManagerRef\": {\n    \"id\": \"{{prefix}}atm\"\n  },\n  \"oidcPolicy\": {\n    \"policyGroup\": {\n      \"id\": \"{{prefix}}oidc\"\n    },\n    \"idTokenSigningAlgorithm\": \"RS256\",\n    \"grantAccessSessionRevocationApi\": false,\n    \"grantAccessSessionSessionManagementApi\": false,\n    \"pingAccessLogoutCapable\": false\n  },\n  \"tokenExchangeProcessorPolicyRef\": {\n    \"id\": \"{{prefix}}policy\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8b. Resource-AS client (JWT bearer / extension grant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/clients"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clientId\": \"{{ras_client_id}}\",\n  \"name\": \"IDJAG RAS Client\",\n  \"enabled\": true,\n  \"grantTypes\": [\n    \"EXTENSION\"\n  ],\n  \"clientAuth\": {\n    \"type\": \"SECRET\",\n    \"secret\": \"{{ras_secret}}\"\n  },\n  \"restrictScopes\": false,\n  \"defaultAccessTokenManagerRef\": {\n    \"id\": \"{{prefix}}rasatm\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8c. Introspection client (optional)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/clients"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clientId\": \"{{introspect_client_id}}\",\n  \"name\": \"IDJAG RAS Introspection Client\",\n  \"enabled\": true,\n  \"grantTypes\": [\n    \"ACCESS_TOKEN_VALIDATION\"\n  ],\n  \"clientAuth\": {\n    \"type\": \"SECRET\",\n    \"secret\": \"{{introspect_secret}}\"\n  },\n  \"restrictScopes\": false,\n  \"validateUsingAllEligibleAtms\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "validateUsingAllEligibleAtms is required, otherwise introspection returns active:false for the resource-AS tokens."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", function () {",
+                  "  var c = pm.response.code; if (c === 201 || c === 200) return;",
+                  "  var t = pm.response.text();",
+                  "  if ((c === 409 || c === 422 || c === 400) && /already|in use|exists|duplicate/i.test(t)) { console.warn(\"exists, continuing: \" + t.slice(0, 200)); return; }",
+                  "  throw new Error(\"HTTP \" + c + \": \" + t.slice(0, 600));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Browser login policy  [DESTRUCTIVE - get the engineer's explicit OK first]",
+      "item": [
+        {
+          "name": "9a. (Re)back up the current default authentication policy",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/default"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"backup captured\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code); pm.collectionVariables.set(\"authn_policy_backup\", pm.response.text()); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9b. REPLACE the default authentication policy with HTML Form -> APC",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/default"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"failIfNoSelection\": false,\n  \"authnSelectionTrees\": [\n    {\n      \"name\": \"{{prefix}}\",\n      \"enabled\": true,\n      \"handleFailuresLocally\": false,\n      \"rootNode\": {\n        \"action\": {\n          \"type\": \"AUTHN_SOURCE\",\n          \"authenticationSource\": {\n            \"type\": \"IDP_ADAPTER\",\n            \"sourceRef\": {\n              \"id\": \"{{prefix}}form\"\n            }\n          }\n        },\n        \"children\": [\n          {\n            \"action\": {\n              \"type\": \"DONE\",\n              \"context\": \"Fail\"\n            }\n          },\n          {\n            \"action\": {\n              \"type\": \"APC_MAPPING\",\n              \"context\": \"Success\",\n              \"authenticationPolicyContractRef\": {\n                \"id\": \"{{prefix}}apc\"\n              },\n              \"attributeMapping\": {\n                \"attributeSources\": [],\n                \"attributeContractFulfillment\": {\n                  \"subject\": {\n                    \"source\": {\n                      \"type\": \"ADAPTER\",\n                      \"id\": \"{{prefix}}form\"\n                    },\n                    \"value\": \"username\"\n                  }\n                },\n                \"issuanceCriteria\": {\n                  \"conditionalCriteria\": []\n                }\n              }\n            }\n          }\n        ]\n      }\n    }\n  ],\n  \"defaultAuthenticationSources\": [],\n  \"trackedHttpParameters\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Overwrites the whole default policy. Needed for the browser auth-code login; not needed for the password grant."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 600)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9c. Enable IdP authentication policies",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/settings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enableIdpAuthnSelection\": true,\n  \"enableSpAuthnSelection\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Without this PF answers the authorize endpoint with 'no authentication methods available for OAuth'. Check authn_settings_backup first: keep enableSpAuthnSelection as the engineer had it."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 600)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Only the browser (authorization code) login needs this. The password-grant Verify steps work without it."
+    },
+    {
+      "name": "10. Verify (runtime, end to end)",
+      "item": [
+        {
+          "name": "10a. Password grant -> access + refresh token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{test_user}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{test_pass}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"has refresh_token\", function () { if (!j.refresh_token) throw new Error(\"no refresh_token; is offline_access scope + REFRESH_TOKEN grant set?\"); });",
+                  "pm.collectionVariables.set(\"access_token\", j.access_token); pm.collectionVariables.set(\"refresh_token\", j.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10b. Refresh grant -> ID token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"has id_token\", function () { if (!j.id_token) throw new Error(\"no id_token returned\"); });",
+                  "pm.collectionVariables.set(\"id_token\", j.id_token); pm.collectionVariables.set(\"access_token\", j.access_token);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10c. Exchange REFRESH token -> ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{issuer}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Exchanges the refresh_token for an ID-JAG (returned in `access_token`, saved as `idjag`)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issued_token_type is id-jag\", function () { if (j.issued_token_type !== \"urn:ietf:params:oauth:token-type:id-jag\") throw new Error(\"got \" + j.issued_token_type); });",
+                  "pm.collectionVariables.set(\"idjag\", j.access_token);",
+                  "var h = JSON.parse(atob(j.access_token.split(\".\")[0].replace(/-/g, \"+\").replace(/_/g, \"/\")));",
+                  "var c = JSON.parse(atob(j.access_token.split(\".\")[1].replace(/-/g, \"+\").replace(/_/g, \"/\")));",
+                  "pm.test(\"header typ is oauth-id-jag+jwt\", function () { if (h.typ !== \"oauth-id-jag+jwt\") throw new Error(\"typ=\" + h.typ); });",
+                  "console.log(\"ID-JAG header\", JSON.stringify(h), \"claims\", JSON.stringify(c));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10d. JWT bearer: ID-JAG -> access token (resource AS)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                  "type": "text"
+                },
+                {
+                  "key": "assertion",
+                  "value": "{{idjag}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ras_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ras_secret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Redeems the ID-JAG. Run right after a 10c/10e/10f request (ID-JAG lives about 5 minutes)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"has access_token\", function () { if (!j.access_token) throw new Error(\"none\"); });",
+                  "pm.collectionVariables.set(\"ras_access_token\", j.access_token);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10d2. Introspect the resource-AS access token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/introspect.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{ras_access_token}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{introspect_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{introspect_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"token active\", function () { if (j.active !== true) throw new Error(\"active=\" + j.active + \" (check 8c validateUsingAllEligibleAtms)\"); });",
+                  "console.log(\"introspection\", JSON.stringify(j));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10e. Exchange ACCESS token -> ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{access_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:access_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{issuer}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Exchanges the access_token for an ID-JAG (returned in `access_token`, saved as `idjag`)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issued_token_type is id-jag\", function () { if (j.issued_token_type !== \"urn:ietf:params:oauth:token-type:id-jag\") throw new Error(\"got \" + j.issued_token_type); });",
+                  "pm.collectionVariables.set(\"idjag\", j.access_token);",
+                  "var h = JSON.parse(atob(j.access_token.split(\".\")[0].replace(/-/g, \"+\").replace(/_/g, \"/\")));",
+                  "var c = JSON.parse(atob(j.access_token.split(\".\")[1].replace(/-/g, \"+\").replace(/_/g, \"/\")));",
+                  "pm.test(\"header typ is oauth-id-jag+jwt\", function () { if (h.typ !== \"oauth-id-jag+jwt\") throw new Error(\"typ=\" + h.typ); });",
+                  "console.log(\"ID-JAG header\", JSON.stringify(h), \"claims\", JSON.stringify(c));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10f. Exchange ID token -> ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{id_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{issuer}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Exchanges the id_token for an ID-JAG (returned in `access_token`, saved as `idjag`)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issued_token_type is id-jag\", function () { if (j.issued_token_type !== \"urn:ietf:params:oauth:token-type:id-jag\") throw new Error(\"got \" + j.issued_token_type); });",
+                  "pm.collectionVariables.set(\"idjag\", j.access_token);",
+                  "var h = JSON.parse(atob(j.access_token.split(\".\")[0].replace(/-/g, \"+\").replace(/_/g, \"/\")));",
+                  "var c = JSON.parse(atob(j.access_token.split(\".\")[1].replace(/-/g, \"+\").replace(/_/g, \"/\")));",
+                  "pm.test(\"header typ is oauth-id-jag+jwt\", function () { if (h.typ !== \"oauth-id-jag+jwt\") throw new Error(\"typ=\" + h.typ); });",
+                  "console.log(\"ID-JAG header\", JSON.stringify(h), \"claims\", JSON.stringify(c));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10g. JWT bearer again with the ID-JAG from 10f",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                  "type": "text"
+                },
+                {
+                  "key": "assertion",
+                  "value": "{{idjag}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ras_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ras_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 500)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"has access_token\", function () { if (!j.access_token) throw new Error(\"none\"); });"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "description": "Uses the password grant so no browser is needed. For the real login, run the browser flow in Postman against {{pf_runtime}}/as/authorization.oauth2 (needs folder 9)."
+    },
+    {
+      "name": "11. Teardown (restores the auth policy FIRST, then removes everything above)",
+      "item": [
+        {
+          "name": "11.0a RESTORE default authentication policy from backup (only if folder 9 was run; must be first)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/default"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{authn_policy_backup}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Body is the JSON captured in 0g/9a. Skip if folder 9 was never run. If the backup was an empty policy, PF may reject it; tell the engineer."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 600)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11.0b RESTORE authentication policy settings from backup",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicies/settings"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{authn_settings_backup}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 600)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11a. client {{introspect_client_id}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/clients/{{introspect_client_id}}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11b. client {{ras_client_id}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/clients/{{ras_client_id}}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11c. client {{ac_client_id}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/clients/{{ac_client_id}}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11d. IdP connection",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/sp/idpConnections/{{prefix}}idp"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11e. SP connection",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/spConnections/{{prefix}}sp"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11f. token-exchange access token mapping",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenMappings/urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange%7C{{prefix}}policy%7C{{prefix}}atm"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11g. processor policy",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/tokenExchange/processor/policies/{{prefix}}policy"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11h. token processor (ID token)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/tokenProcessors/{{prefix}}itp"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11i. token processor (access token)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/tokenProcessors/{{prefix}}atp"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11j. token processor (refresh token)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/tokenProcessors/{{prefix}}rtp"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11k. OIDC policy",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/openIdConnect/policies/{{prefix}}oidc"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11l. access token mapping (APC)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenMappings/authz_req%7Capc.{{prefix}}apc%7C{{prefix}}atm"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11m. access token mapping (PCV)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenMappings/password%7C{{prefix}}pcv%7C{{prefix}}atm"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11n. APC -> grant mapping",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authenticationPolicyContractMappings/{{prefix}}apc"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11o. PCV -> grant mapping",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/resourceOwnerCredentialsMappings/{{prefix}}pcv"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11p. ATM (resource AS)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenManagers/{{prefix}}rasatm"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11q. ATM",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/accessTokenManagers/{{prefix}}atm"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11r. HTML Form adapter",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/adapters/{{prefix}}form"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11s. APC",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/authenticationPolicyContracts/{{prefix}}apc"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11t. PCV",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/passwordCredentialValidators/{{prefix}}pcv"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11u. scope openid",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes/openid"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11u. scope profile",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes/profile"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11u. scope email",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes/email"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11u. scope offline_access",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes/offline_access"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11u. scope chat.read",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes/chat.read"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11u. scope chat.history",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/oauth/authServerSettings/scopes/commonScopes/chat.history"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11x. signing key generated by 0d (only exists if 0-optional was run)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/keyPairs/signing/{{prefix}}signing"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deleted or absent\", function () { var c = pm.response.code; if (c === 200 || c === 204 || c === 404) return; throw new Error(\"HTTP \" + c + \": \" + pm.response.text().slice(0, 400)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "WARNING: deleting scopes removes them even if they existed before this setup. Claude: ask before running 11u if 0-1 reported the scopes already existed."
+    }
+  ]
+}

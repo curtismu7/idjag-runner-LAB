@@ -4,6 +4,7 @@ import FlowTab from './FlowTab.jsx';
 import TraceTab from './TraceTab.jsx';
 import InspectorTab from './InspectorTab.jsx';
 import AboutTab from './AboutTab.jsx';
+import SeGuideTab from './SeGuideTab.jsx';
 import DiagramView from './DiagramView.jsx';
 import { DiagramTab } from './DiagramTab.jsx';
 import ShelfLink from './components/ShelfLink.jsx';
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'jwks', label: 'JWKS / Inspector' },
   { id: 'diagram', label: 'Diagram' },
   { id: 'about', label: 'About' },
+  { id: 'seguide', label: 'Postman + PF setup' },
 ];
 
 function themeOf() {
@@ -80,6 +82,7 @@ export default function App() {
         {tab === 'jwks' ? <InspectorTab runtimeUrl={runtimeUrl} onRuntimeChanged={setRuntimeUrl} /> : null}
         {tab === 'diagram' ? <DiagramTab /> : null}
         {tab === 'about' ? <AboutTab /> : null}
+        {tab === 'seguide' ? <SeGuideTab /> : null}
       </main>
     </>
   );

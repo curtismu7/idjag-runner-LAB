@@ -25,7 +25,7 @@ describe('App shell', () => {
     for (const label of ['Flow', 'Trace', 'JWKS / Inspector', 'About']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
-    expect(screen.getByRole('note').textContent).toMatch(/real PingFederate/);
+    expect(screen.getAllByRole('note')[0].textContent).toMatch(/real PingFederate/);
   });
 
   it('shows the runtime host in the header from /api/info', async () => {
@@ -98,7 +98,7 @@ describe('Act 4 expected-refusal styling', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<FlowTab />);
-    fireEvent.click(screen.getByRole('button', { name: /Forged assertion/ }));
+    fireEvent.click(screen.getByRole('button', { name: /forged assertion/i }));
     const result = await screen.findByTestId('act4-result');
     expect(result.className).toBe('result-ok');
     expect(result.textContent).toMatch(/PF refused as designed: invalid_grant/);

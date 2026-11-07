@@ -1,0 +1,1142 @@
+{
+  "info": {
+    "name": "PingFederate ID-JAG - DEMO",
+    "description": "# ID-JAG demo on PingFederate\n\n**One sentence:** a user signs in once at the company IdP, and an app can then get access to *another* system's API on that user's behalf, with no second login, while the IdP stays in control of who may reach what.\n\n## The story to tell (60 seconds)\n- An AI agent / app has a user signed in at the enterprise IdP. It now needs to call another application's API (a chat service, a ticketing system) for that user.\n- Today that means another login prompt, or a long-lived credential handed around. Neither is great.\n- With **ID-JAG** the app asks the IdP for a short-lived, signed assertion that names the user, the app and the target resource server. The app gives that assertion to the resource server's authorization server, which checks the IdP's signature and issues its own access token. The user is never prompted again.\n\n## What PingFederate is doing in this demo\n| Role | Where you see it |\n|---|---|\n| **Identity provider**: signs the user in and issues tokens | Act 1 |\n| **Enterprise IdP / ID-JAG issuer**: validates a token the app holds and mints the ID-JAG, subject to policy | Act 2, Act 4 |\n| **Resource authorization server**: verifies the ID-JAG and issues an access token for the API | Act 3 |\n\nHere one PF instance plays all three roles to keep the demo small. In production the resource AS is a separate system (for example another PingFederate, PingOne, or Auth0).\n\n## How to run it\n1. Import this collection. In Postman Settings > General, turn **off** SSL certificate verification (PF uses a self-signed cert).\n2. All PF values are **pre-wired** as collection variables (Variables tab). Change `pf_runtime` / `pf_admin` and the admin password if your PF is elsewhere. Clients, secrets and the test user match the **PingFederate-IDJAG-Setup** collection defaults.\n3. Open the Postman Console (View > Show Postman Console) to see decoded token claims. After each token request, open the **Visualize** tab to see the token decoded on screen.\n4. Run **Act 1 to Act 4 in order** (you can use the Collection Runner). Each request is named `STEP n.n - what we're showing`, and its description says what to say and what to point at.\n\nTest user: `{{test_user}}` / `{{test_pass}}`.\n\n## Honest limits (say these up front)\n- PF is both IdP and resource AS here; there is no real downstream API (introspection stands in for it).\n- PF accepted the same ID-JAG twice within its ~5 minute life in testing, so do not claim single-use.\n- The ID-JAG here has no `client_id` claim (the draft spec / Auth0 article describe one).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "pf_runtime",
+      "value": "https://localhost:9031"
+    },
+    {
+      "key": "pf_admin",
+      "value": "https://localhost:9999"
+    },
+    {
+      "key": "admin_user",
+      "value": "Administrator"
+    },
+    {
+      "key": "admin_pass",
+      "value": "Test1234!"
+    },
+    {
+      "key": "prefix",
+      "value": "idjag"
+    },
+    {
+      "key": "test_user",
+      "value": "tarun"
+    },
+    {
+      "key": "test_pass",
+      "value": "Test1234!"
+    },
+    {
+      "key": "ac_client_id",
+      "value": "idjag-ac-client"
+    },
+    {
+      "key": "ac_secret",
+      "value": "idjagAcSecret1234"
+    },
+    {
+      "key": "ras_client_id",
+      "value": "idjag-ras-client"
+    },
+    {
+      "key": "ras_secret",
+      "value": "rasSecret1234"
+    },
+    {
+      "key": "introspect_client_id",
+      "value": "idjag-introspect"
+    },
+    {
+      "key": "introspect_secret",
+      "value": "introSecret1234"
+    },
+    {
+      "key": "audience",
+      "value": "{{pf_runtime}}"
+    },
+    {
+      "key": "resource",
+      "value": "https://api.resource.example.com/"
+    },
+    {
+      "key": "callback_url",
+      "value": "https://oauth.pstmn.io/v1/callback"
+    },
+    {
+      "key": "scope",
+      "value": "openid offline_access chat.read"
+    },
+    {
+      "key": "exchange_scope",
+      "value": "chat.read chat.history"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "id_token",
+      "value": ""
+    },
+    {
+      "key": "idjag",
+      "value": ""
+    },
+    {
+      "key": "ras_access_token",
+      "value": ""
+    },
+    {
+      "key": "tampered_idjag",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "ACT 1 - The user signs in (PF as the Identity Provider)",
+      "description": "**Goal:** establish that the user is signed in at the enterprise IdP and the app holds their tokens.\n\n**Talk track:** 'Before any ID-JAG exists, the user authenticates once at the IdP. The app ends up holding an access token, a refresh token and an ID token.'",
+      "item": [
+        {
+          "name": "STEP 1.1 (optional, REAL LOGIN) - sign in through the browser",
+          "request": {
+            "auth": {
+              "type": "oauth2",
+              "oauth2": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code",
+                  "type": "string"
+                },
+                {
+                  "key": "authUrl",
+                  "value": "{{pf_runtime}}/as/authorization.oauth2",
+                  "type": "string"
+                },
+                {
+                  "key": "accessTokenUrl",
+                  "value": "{{pf_runtime}}/as/token.oauth2",
+                  "type": "string"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{callback_url}}",
+                  "type": "string"
+                },
+                {
+                  "key": "clientId",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "clientSecret",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{scope}}",
+                  "type": "string"
+                },
+                {
+                  "key": "state",
+                  "value": "idjag",
+                  "type": "string"
+                },
+                {
+                  "key": "client_authentication",
+                  "value": "header",
+                  "type": "string"
+                },
+                {
+                  "key": "addTokenTo",
+                  "value": "header",
+                  "type": "string"
+                },
+                {
+                  "key": "tokenName",
+                  "value": "PF IDJAG",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/idp/userinfo.openid"
+            },
+            "description": "**What we're doing:** A genuine browser login at the IdP using the authorization code flow.\n\n**Say:** 'This is the normal single sign-on the user already does at work.'\n\n**Point at:** On the **Authorization** tab click **Get New Access Token**. A PF login page opens: sign in as `{{test_user}}` / `{{test_pass}}`. Postman's token dialog lists `access_token`, `refresh_token` and `id_token`; copy them into the collection variables `access_token`, `refresh_token`, `id_token`, then click **Use Token** and **Send** (calls userinfo, which returns the signed-in user).\n\n**Expect:** Userinfo returns `{\"sub\": \"tarun\"}`. Use STEP 1.2 + 1.3 instead if you want a fully automatic run."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"userinfo returns the signed-in user (SKIPPED unless you did Get New Access Token)\", function () { if (pm.response.code === 401) { console.warn(\"No token yet: on the Authorization tab click Get New Access Token, log in, Use Token, then Send. Or use STEP 1.2.\"); return; } if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "STEP 1.2 (shortcut) - sign in without a browser (password grant)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** Gets the same tokens as a login, scripted, so the demo runs hands-free.\n\n**Say:** 'For the demo I'll shortcut the login. The result is identical: the app now holds the user's tokens.'\n\n**Point at:** `access_token` and `refresh_token` in the response. Both are saved to variables automatically.\n\n**Expect:** HTTP 200 with `access_token` and `refresh_token`. (PF does not return an ID token on this grant; that comes next.)",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{test_user}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{test_pass}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"refresh token received\", function () { if (!j.refresh_token) throw new Error(\"no refresh_token (needs offline_access scope)\"); });",
+                  "pm.collectionVariables.set(\"access_token\", j.access_token); pm.collectionVariables.set(\"refresh_token\", j.refresh_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 1.3 - show the user's identity (refresh grant returns the ID token)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** Exchanges the refresh token for fresh tokens, including the **ID token**, which carries who the user is.\n\n**Say:** 'The ID token is the proof of identity from the IdP. This is what the app will present to ask for the ID-JAG.'\n\n**Point at:** Open **Visualize** to see the ID token decoded: `sub` is the user, `iss` is PingFederate, `aud` is the app (`{{ac_client_id}}`).\n\n**Expect:** HTTP 200 with `id_token`. Saved to `{{id_token}}`.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function b64j(s) { return JSON.parse(atob(s.replace(/-/g, \"+\").replace(/_/g, \"/\"))); }",
+                  "function decodeJwt(t) { var p = t.split(\".\"); return { header: b64j(p[0]), claims: b64j(p[1]) }; }",
+                  "function fmt(o) { return Object.keys(o).map(function (k) { return \"<tr><td style='padding:2px 12px 2px 0;color:#555'>\" + k + \"</td><td><code>\" + JSON.stringify(o[k]) + \"</code></td></tr>\"; }).join(\"\"); }",
+                  "function show(title, t) {",
+                  "  var d = decodeJwt(t);",
+                  "  console.log(title, \"HEADER\", JSON.stringify(d.header), \"CLAIMS\", JSON.stringify(d.claims));",
+                  "  pm.visualizer.set(\"<div style='font-family:sans-serif'><h3>\" + title + \"</h3><b>Header</b><table>\" + fmt(d.header) + \"</table><b>Claims</b><table>\" + fmt(d.claims) + \"</table></div>\", {});",
+                  "  return d;",
+                  "}",
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"ID token received\", function () { if (!j.id_token) throw new Error(\"no id_token\"); });",
+                  "pm.collectionVariables.set(\"id_token\", j.id_token); pm.collectionVariables.set(\"access_token\", j.access_token);",
+                  "show(\"ID token (who the user is)\", j.id_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ACT 2 - The app asks the IdP for an ID-JAG (PF as the enterprise IdP)",
+      "description": "**Goal:** the app swaps something it already holds for an ID-JAG, a short-lived signed pass for one specific resource server.\n\n**Talk track:** 'The app now needs to reach another system. Instead of prompting the user again, it asks the IdP: here is my proof the user is signed in; give me a pass for the chat service.'",
+      "item": [
+        {
+          "name": "STEP 2.1 (HEADLINE) - trade the ID TOKEN for an ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** The standard enterprise flow: the app sends the user's ID token to the IdP and asks for an ID-JAG for a named resource server.\n\n**Say:** 'The IdP checks who this is, checks policy, and mints a pass that is good for one purpose: this user, this app, this resource server, about five minutes.'\n\n**Point at:** In the request body: `requested_token_type=...id-jag`, `audience` (the resource AS), `resource` (the API). In **Visualize**: `typ` = `oauth-id-jag+jwt`, `iss` = the IdP, `aud` = the resource AS, `sub` = the user, `resource` = the target API, and a short `exp`.\n\n**Expect:** HTTP 200, `issued_token_type` = `urn:ietf:params:oauth:token-type:id-jag`, `expires_in` about 300 seconds. The ID-JAG is in the `access_token` field and is saved to `{{idjag}}`. Open **Visualize** to see it decoded.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{id_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{audience}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function b64j(s) { return JSON.parse(atob(s.replace(/-/g, \"+\").replace(/_/g, \"/\"))); }",
+                  "function decodeJwt(t) { var p = t.split(\".\"); return { header: b64j(p[0]), claims: b64j(p[1]) }; }",
+                  "function fmt(o) { return Object.keys(o).map(function (k) { return \"<tr><td style='padding:2px 12px 2px 0;color:#555'>\" + k + \"</td><td><code>\" + JSON.stringify(o[k]) + \"</code></td></tr>\"; }).join(\"\"); }",
+                  "function show(title, t) {",
+                  "  var d = decodeJwt(t);",
+                  "  console.log(title, \"HEADER\", JSON.stringify(d.header), \"CLAIMS\", JSON.stringify(d.claims));",
+                  "  pm.visualizer.set(\"<div style='font-family:sans-serif'><h3>\" + title + \"</h3><b>Header</b><table>\" + fmt(d.header) + \"</table><b>Claims</b><table>\" + fmt(d.claims) + \"</table></div>\", {});",
+                  "  return d;",
+                  "}",
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issued_token_type is id-jag\", function () { if (j.issued_token_type !== \"urn:ietf:params:oauth:token-type:id-jag\") throw new Error(j.issued_token_type); });",
+                  "pm.collectionVariables.set(\"idjag\", j.access_token);",
+                  "var d = show(\"ID-JAG (minted by PingFederate)\", j.access_token);",
+                  "pm.test(\"typ header is oauth-id-jag+jwt\", function () { if (d.header.typ !== \"oauth-id-jag+jwt\") throw new Error(d.header.typ); });",
+                  "pm.test(\"aud is the resource authorization server\", function () { if (d.claims.aud !== pm.variables.replaceIn(pm.collectionVariables.get(\"audience\"))) throw new Error(\"aud=\" + d.claims.aud); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 2.2 - same result starting from a REFRESH token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** Shows the flexibility: an app that only holds a refresh token (a background agent, for instance) can do the same exchange.\n\n**Say:** 'Useful for agents that act later, without the user at the keyboard.'\n\n**Point at:** Same claims as 2.1. Only `subject_token_type` changed in the body.\n\n**Expect:** HTTP 200, `issued_token_type` = `urn:ietf:params:oauth:token-type:id-jag`, `expires_in` about 300 seconds. The ID-JAG is in the `access_token` field and is saved to `{{idjag}}`. Open **Visualize** to see it decoded.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{audience}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function b64j(s) { return JSON.parse(atob(s.replace(/-/g, \"+\").replace(/_/g, \"/\"))); }",
+                  "function decodeJwt(t) { var p = t.split(\".\"); return { header: b64j(p[0]), claims: b64j(p[1]) }; }",
+                  "function fmt(o) { return Object.keys(o).map(function (k) { return \"<tr><td style='padding:2px 12px 2px 0;color:#555'>\" + k + \"</td><td><code>\" + JSON.stringify(o[k]) + \"</code></td></tr>\"; }).join(\"\"); }",
+                  "function show(title, t) {",
+                  "  var d = decodeJwt(t);",
+                  "  console.log(title, \"HEADER\", JSON.stringify(d.header), \"CLAIMS\", JSON.stringify(d.claims));",
+                  "  pm.visualizer.set(\"<div style='font-family:sans-serif'><h3>\" + title + \"</h3><b>Header</b><table>\" + fmt(d.header) + \"</table><b>Claims</b><table>\" + fmt(d.claims) + \"</table></div>\", {});",
+                  "  return d;",
+                  "}",
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issued_token_type is id-jag\", function () { if (j.issued_token_type !== \"urn:ietf:params:oauth:token-type:id-jag\") throw new Error(j.issued_token_type); });",
+                  "pm.collectionVariables.set(\"idjag\", j.access_token);",
+                  "var d = show(\"ID-JAG (minted by PingFederate)\", j.access_token);",
+                  "pm.test(\"typ header is oauth-id-jag+jwt\", function () { if (d.header.typ !== \"oauth-id-jag+jwt\") throw new Error(d.header.typ); });",
+                  "pm.test(\"aud is the resource authorization server\", function () { if (d.claims.aud !== pm.variables.replaceIn(pm.collectionVariables.get(\"audience\"))) throw new Error(\"aud=\" + d.claims.aud); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 2.3 - same result starting from an ACCESS token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** A third starting point: the app's current access token.\n\n**Say:** 'The IdP accepts any token it issued as proof the user is signed in, if policy allows it.'\n\n**Point at:** Same claims again. The IdP's *processor policy* decides which incoming token types it accepts.\n\n**Expect:** HTTP 200, `issued_token_type` = `urn:ietf:params:oauth:token-type:id-jag`, `expires_in` about 300 seconds. The ID-JAG is in the `access_token` field and is saved to `{{idjag}}`. Open **Visualize** to see it decoded.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{access_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:access_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{audience}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function b64j(s) { return JSON.parse(atob(s.replace(/-/g, \"+\").replace(/_/g, \"/\"))); }",
+                  "function decodeJwt(t) { var p = t.split(\".\"); return { header: b64j(p[0]), claims: b64j(p[1]) }; }",
+                  "function fmt(o) { return Object.keys(o).map(function (k) { return \"<tr><td style='padding:2px 12px 2px 0;color:#555'>\" + k + \"</td><td><code>\" + JSON.stringify(o[k]) + \"</code></td></tr>\"; }).join(\"\"); }",
+                  "function show(title, t) {",
+                  "  var d = decodeJwt(t);",
+                  "  console.log(title, \"HEADER\", JSON.stringify(d.header), \"CLAIMS\", JSON.stringify(d.claims));",
+                  "  pm.visualizer.set(\"<div style='font-family:sans-serif'><h3>\" + title + \"</h3><b>Header</b><table>\" + fmt(d.header) + \"</table><b>Claims</b><table>\" + fmt(d.claims) + \"</table></div>\", {});",
+                  "  return d;",
+                  "}",
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issued_token_type is id-jag\", function () { if (j.issued_token_type !== \"urn:ietf:params:oauth:token-type:id-jag\") throw new Error(j.issued_token_type); });",
+                  "pm.collectionVariables.set(\"idjag\", j.access_token);",
+                  "var d = show(\"ID-JAG (minted by PingFederate)\", j.access_token);",
+                  "pm.test(\"typ header is oauth-id-jag+jwt\", function () { if (d.header.typ !== \"oauth-id-jag+jwt\") throw new Error(d.header.typ); });",
+                  "pm.test(\"aud is the resource authorization server\", function () { if (d.claims.aud !== pm.variables.replaceIn(pm.collectionVariables.get(\"audience\"))) throw new Error(\"aud=\" + d.claims.aud); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ACT 3 - The resource authorization server redeems the ID-JAG",
+      "description": "**Goal:** show the second system trusting the IdP and issuing its own token, with no user prompt.\n\n**Talk track:** 'The app now walks over to the other system. That system trusts our IdP, checks the signature on the pass, and issues its own access token.'\n\nRun right after an ACT 2 step (the ID-JAG lives about 5 minutes).",
+      "item": [
+        {
+          "name": "STEP 3.1 - redeem the ID-JAG at the resource AS (JWT bearer) and get an access token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** The app presents the ID-JAG to the resource authorization server using the standard JWT-bearer grant (RFC 7523).\n\n**Say:** 'No login screen, no consent prompt, no password. The resource server just verifies the IdP's signature and issues a token scoped to this user and this app.'\n\n**Point at:** The request carries only the `assertion` (the ID-JAG from ACT 2) and the client's credentials. The response is a normal access token for the resource.\n\n**Expect:** HTTP 200 with `access_token`, `scope` = what was granted (`{{exchange_scope}}`), `resource` = the API. Saved to `{{ras_access_token}}`.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                  "type": "text"
+                },
+                {
+                  "key": "assertion",
+                  "value": "{{idjag}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ras_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ras_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"access token issued for the resource\", function () { if (!j.access_token) throw new Error(\"none\"); });",
+                  "pm.collectionVariables.set(\"ras_access_token\", j.access_token);",
+                  "console.log(\"resource access token response\", JSON.stringify(j));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 3.2 - what the API sees: introspect the access token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/introspect.oauth2"
+            },
+            "description": "**What we're doing:** Stands in for the resource API checking the token before serving a request (this demo has no real downstream API).\n\n**Say:** 'This is what the API learns: who the user is, which app is acting for them, and what it may do.'\n\n**Point at:** `active: true`, `sub` = the user, `client_id` = the app that redeemed the ID-JAG, `scope`.\n\n**Expect:** HTTP 200 with `active: true`.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{ras_access_token}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{introspect_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{introspect_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"token is active\", function () { if (j.active !== true) throw new Error(\"active=\" + j.active); });",
+                  "pm.test(\"token names the user and the acting app\", function () { if (!j.sub || !j.client_id) throw new Error(JSON.stringify(j)); });",
+                  "console.log(\"introspection\", JSON.stringify(j));",
+                  "pm.visualizer.set(\"<div style='font-family:sans-serif'><h3>What the API sees</h3><table>\" + Object.keys(j).map(function (k) { return \"<tr><td style='padding:2px 12px 2px 0;color:#555'>\" + k + \"</td><td><code>\" + JSON.stringify(j[k]) + \"</code></td></tr>\"; }).join(\"\") + \"</table></div>\", {});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ACT 4 - Control and safety: what PingFederate refuses",
+      "description": "**Goal:** show that the IdP stays in control. Each step here is *supposed to fail*; a green test means PF refused it correctly.\n\n**Talk track:** 'The point of putting the IdP in the middle is that it, and not each app, decides who can reach what.'\n\nRun after ACT 3 so `{{idjag}}` is set.",
+      "item": [
+        {
+          "name": "STEP 4.1 - an app that is not approved cannot ask for an ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** A different client (the resource-AS client, which has no token-exchange permission) tries to get an ID-JAG.\n\n**Say:** 'Only applications the admin has approved for token exchange can ask. This one is not.'\n\n**Point at:** The error in the response and the console.\n\n**Expect:** HTTP 400 `unauthorized_client`. A green test = correctly refused.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{audience}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{resource}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ras_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ras_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF refused: this app is not allowed to exchange tokens\", function () { if (pm.response.code !== 400) throw new Error(\"expected HTTP 400, got \" + pm.response.code + \": \" + pm.response.text().slice(0, 300)); var j = pm.response.json(); if (j.error !== \"unauthorized_client\") throw new Error(\"expected error unauthorized_client, got \" + j.error); });",
+                  "console.log(\"PF refused:\", pm.response.text());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 4.2 - the IdP will not mint passes for unknown resource servers",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** The approved app asks for an ID-JAG for a resource server the IdP has no relationship with.\n\n**Say:** 'The IdP only issues passes for resource servers the admin has configured. A made-up or malicious target gets nothing.'\n\n**Point at:** The `invalid_target` error and its description.\n\n**Expect:** HTTP 400 `invalid_target`: audience not recognized.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:id-jag",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{refresh_token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:refresh_token",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "https://evil.example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "https://evil.example.com/api",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF refused: unknown resource server\", function () { if (pm.response.code !== 400) throw new Error(\"expected HTTP 400, got \" + pm.response.code + \": \" + pm.response.text().slice(0, 300)); var j = pm.response.json(); if (j.error !== \"invalid_target\") throw new Error(\"expected error invalid_target, got \" + j.error); });",
+                  "console.log(\"PF refused:\", pm.response.text());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 4.3 - a forged or altered ID-JAG is rejected by the resource AS",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** Takes the genuine ID-JAG, changes the user (`sub`) to `admin`, and presents it.\n\n**Say:** 'Someone tries to tamper with the pass to impersonate an admin. The signature no longer matches, so the resource server refuses it.'\n\n**Point at:** The pre-request script edits the token; the response is `invalid_grant`.\n\n**Expect:** HTTP 400 `invalid_grant`.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                  "type": "text"
+                },
+                {
+                  "key": "assertion",
+                  "value": "{{tampered_idjag}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ras_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ras_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var t = pm.collectionVariables.get(\"idjag\"); if (!t) throw new Error(\"Run an ACT 2 step first so there is an ID-JAG to tamper with\");",
+                  "var p = t.split(\".\"); var c = JSON.parse(atob(p[1].replace(/-/g, \"+\").replace(/_/g, \"/\"))); c.sub = \"admin\";",
+                  "var b = btoa(JSON.stringify(c)).replace(/\\+/g, \"-\").replace(/\\//g, \"_\").replace(/=+$/, \"\");",
+                  "pm.collectionVariables.set(\"tampered_idjag\", p[0] + \".\" + b + \".\" + p[2]);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF refused: signature does not match the altered ID-JAG\", function () { if (pm.response.code !== 400) throw new Error(\"expected HTTP 400, got \" + pm.response.code + \": \" + pm.response.text().slice(0, 300)); var j = pm.response.json(); if (j.error !== \"invalid_grant\") throw new Error(\"expected error invalid_grant, got \" + j.error); });",
+                  "console.log(\"PF refused:\", pm.response.text());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 4.4 - the wrong app cannot redeem the ID-JAG",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/as/token.oauth2"
+            },
+            "description": "**What we're doing:** The requesting app (which is allowed to *ask* for passes) tries to *redeem* one at the resource AS.\n\n**Say:** 'Redeeming is a separate permission. Roles stay separated.'\n\n**Point at:** `unauthorized_client`.\n\n**Expect:** HTTP 400 `unauthorized_client`.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                  "type": "text"
+                },
+                {
+                  "key": "assertion",
+                  "value": "{{idjag}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{exchange_scope}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{ac_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{ac_secret}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF refused: this app may not redeem ID-JAGs\", function () { if (pm.response.code !== 400) throw new Error(\"expected HTTP 400, got \" + pm.response.code + \": \" + pm.response.text().slice(0, 300)); var j = pm.response.json(); if (j.error !== \"unauthorized_client\") throw new Error(\"expected error unauthorized_client, got \" + j.error); });",
+                  "console.log(\"PF refused:\", pm.response.text());"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ACT 5 (optional) - Under the hood: what PingFederate is configured with",
+      "description": "**Goal:** for technical audiences, show the trust configuration behind the demo.\n\n**Talk track:** 'Nothing magic: it is two connections, one that says who may receive passes, one that says whose passes we accept.'",
+      "item": [
+        {
+          "name": "STEP 5.1 - the IdP's public signing keys (what the resource AS verifies against)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pf_runtime}}/pf/JWKS"
+            },
+            "description": "**What we're doing:** Shows the public keys the IdP publishes (JWKS).\n\n**Say:** 'The resource server verifies the pass against these public keys. No shared secret is exchanged.'\n\n**Point at:** The `kid` values; the ID-JAG header has an `x5t` thumbprint of the signing certificate.\n\n**Expect:** HTTP 200 with a `keys` array.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"public keys published\", function () { if (!j.keys || !j.keys.length) throw new Error(\"no keys\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 5.2 - the IdP side: which resource servers may receive ID-JAGs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/idp/spConnections/{{prefix}}sp"
+            },
+            "description": "**What we're doing:** Reads the OAuth Token Exchange SP connection from the admin API.\n\n**Say:** 'This connection is the allow-list: the resource server, the signing key, and the policy that decides what incoming tokens are acceptable.'\n\n**Point at:** `entityId` (the resource AS), `oauthTokenExchangeSettings.idJagEnabled`, `resourceUris`, `processorPolicyMappings`.\n\n**Expect:** HTTP 200.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{admin_user}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{admin_pass}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"ID-JAG enabled on the connection\", function () { if (!(j.oauthTokenExchangeSettings && j.oauthTokenExchangeSettings.idJagEnabled)) throw new Error(\"idJagEnabled is not true\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STEP 5.3 - the resource AS side: whose ID-JAGs we trust",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-XSRF-Header",
+                "value": "PingFederate"
+              }
+            ],
+            "url": {
+              "raw": "{{pf_admin}}/pf-admin-api/v1/sp/idpConnections/{{prefix}}idp"
+            },
+            "description": "**What we're doing:** Reads the IdP connection with the OAuth assertion grant from the admin API.\n\n**Say:** 'On the receiving side we trust one issuer, with its signing certificate imported. Anything not signed by it is refused, as in step 4.3.'\n\n**Point at:** `entityId` (the trusted issuer), the verification certificate, the mapping to the access token manager.\n\n**Expect:** HTTP 200.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{admin_user}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{admin_pass}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"PF answered 200\", function () { if (pm.response.code !== 200) throw new Error(\"HTTP \" + pm.response.code + \": \" + pm.response.text().slice(0, 400)); });",
+                  "var j = pm.response.json();",
+                  "pm.test(\"issuer trusted with a verification certificate\", function () { if (!(j.credentials && j.credentials.certs && j.credentials.certs.length)) throw new Error(\"no cert\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
