@@ -20,7 +20,13 @@ const DEMO_CLIENT_SECRETS = {
   'idjag-ras-client': 'rasSecret1234',
   'idjag-introspect': 'introSecret1234',
 };
-const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const csp = ({ styleSrc = "'self'", frameAncestors = "'none'" } = {}) => `default-src 'self'; script-src 'self'; style-src ${styleSrc}; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors ${frameAncestors}; base-uri 'none'; form-action 'self'`;
+const CSP = csp();
+// The one page the Postman + PF setup tab embeds in an iframe. Only this path may be framed, and only by this
+// same origin. The guide is a static file with one inline <style> block and no script, so it also needs inline
+// styles; script-src stays 'self'.
+export const GUIDE_PATH = '/idjag-se-guide.html';
+const GUIDE_CSP = csp({ styleSrc: "'self' 'unsafe-inline'", frameAncestors: "'self'" });
 
 // Every error is JSON with a fixed code; LabError adds a page-ready message and, when PingFederate was already
 // called, the redacted trace up to the failure. No stack, path or secret ever reaches the client.
@@ -81,7 +87,8 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
   app.locals.netguard = netguard;
   app.disable('x-powered-by');
   app.use((req, res, next) => {
-    res.set({ 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP });
+    const guide = req.path === GUIDE_PATH;
+    res.set({ 'X-Frame-Options': guide ? 'SAMEORIGIN' : 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': guide ? GUIDE_CSP : CSP });
     next();
   });
   const allowedHosts = addresses.hosts;

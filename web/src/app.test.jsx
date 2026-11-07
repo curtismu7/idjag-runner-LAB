@@ -166,3 +166,21 @@ describe('secret hygiene', () => {
     expect(localStorage.getItem('idjag_theme')).toBeNull();
   });
 });
+
+describe('inline Flow diagram', () => {
+  // ReactFlow fits the view once, when it first measures its container. Inside a closed <details> that
+  // container is 0x0, so the diagram must not be mounted until the section is opened.
+  it('mounts the diagram only after the collapsed section is opened, and unmounts it on close', () => {
+    const { container } = render(<FlowTab />);
+    const details = container.querySelector('details.flow-diagram-details');
+    expect(details.open).toBe(false);
+    expect(screen.queryByTestId('diagram-canvas')).toBeNull();
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    expect(screen.getByTestId('diagram-canvas')).toBeTruthy();
+    expect(container.querySelector('.react-flow')).toBeTruthy();
+    details.open = false;
+    fireEvent(details, new Event('toggle'));
+    expect(screen.queryByTestId('diagram-canvas')).toBeNull();
+  });
+});
