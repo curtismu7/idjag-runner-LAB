@@ -32,6 +32,19 @@ function Field({ id, label, ...props }) {
   );
 }
 
+// The diagram is mounted only while its section is open. ReactFlow runs fitView once, when it first measures
+// its container; mounted inside a closed <details> the container is 0x0, so the view fitted to nothing and the
+// boxes showed tiny in the corner once opened. Mounting on open means it fits the real, visible size.
+function FlowDiagramDetails() {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="card card--neutral flow-diagram-details" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>The flow on one diagram — PingFederate as IdP + enterprise issuer, PingFederate as resource AS, MCP server</summary>
+      {open && <DiagramView id="idjagrunner-flow" />}
+    </details>
+  );
+}
+
 export default function FlowTab() {
   const [username, setUsername] = useState(ACT1_DEFAULTS.username);
   const [password, setPassword] = useState('');
@@ -73,10 +86,7 @@ export default function FlowTab() {
     <div>
       <Banner />
 
-      <details className="card card--neutral flow-diagram-details">
-        <summary>The flow on one diagram — PingFederate as IdP + enterprise issuer, PingFederate as resource AS, MCP server</summary>
-        <DiagramView id="idjagrunner-flow" />
-      </details>
+      <FlowDiagramDetails />
 
       <section className="card card--neutral" aria-labelledby="act1-h">
         <h3 id="act1-h">PingFederate · IdP — sign in (password grant, then refresh grant)</h3>
