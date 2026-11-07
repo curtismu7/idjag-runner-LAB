@@ -405,3 +405,23 @@ test('act4 falls back to the session-stored secret when the body omits clientSec
   assert.equal(r2.status, 400);
   assert.equal(r2.body.error, 'missing_field');
 });
+
+test('only the SE guide page may be framed, and only by the same origin', async (t) => {
+  const ctx = await start();
+  t.after(() => ctx.close());
+  const host = new URL(ctx.base).host;
+  const guide = await get(ctx.base, '/idjag-se-guide.html', { Host: host });
+  assert.equal(guide.headers['x-frame-options'], 'SAMEORIGIN');
+  assert.match(guide.headers['content-security-policy'], /frame-ancestors 'self'(;|$)/);
+  assert.doesNotMatch(guide.headers['content-security-policy'], /frame-ancestors 'none'/);
+  assert.match(guide.headers['content-security-policy'], /script-src 'self';/); // scripts stay locked down
+  for (const p of ['/api/health', '/', '/idjag-se-guide.html.bak', '/api/idjag-se-guide.html', '/index.html']) {
+    const r = await get(ctx.base, p, { Host: host });
+    assert.equal(r.headers['x-frame-options'], 'DENY', p);
+    assert.match(r.headers['content-security-policy'], /frame-ancestors 'none'/, p);
+    assert.doesNotMatch(r.headers['content-security-policy'], /unsafe-inline/, p);
+  }
+  // A foreign Host is still refused on the guide path, and the refusal itself is not frameable.
+  const bad = await get(ctx.base, '/idjag-se-guide.html', { Host: 'evil.example:80' });
+  assert.equal(bad.status, 403);
+});
