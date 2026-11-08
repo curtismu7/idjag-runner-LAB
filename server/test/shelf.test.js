@@ -61,3 +61,15 @@ test('/api/shelf reads SHELF_URL from the STANDALONE_ENV settings file', async (
   assert.equal(r.status, 200);
   assert.equal(r.body.shelfUrl, 'https://shelf-file.example');
 });
+
+test('/api/shelf rejects a POST (read-only route)', async (t) => {
+  const ctx = await start({ SHELF_URL: 'https://shelf.example:8443/' });
+  t.after(() => ctx.close());
+  const url = new URL(`${ctx.base}/api/shelf`);
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request({ method: 'POST', hostname: url.hostname, port: url.port, path: url.pathname, headers: { Host: url.host, 'Content-Type': 'application/json', Origin: ctx.base } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject);
+    req.end('{}');
+  });
+  assert.notEqual(status, 200);
+});
