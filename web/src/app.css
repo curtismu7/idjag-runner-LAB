@@ -120,7 +120,7 @@ pre.code {
 
 .dg-picker { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .dg-picker button { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
-.dg-picker button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.dg-picker button.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 .flow-diagram-details > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 .flow-diagram-details[open] > summary { margin-bottom: 8px; }
