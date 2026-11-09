@@ -8,7 +8,10 @@
 @media (min-height: 900px) { .dg-canvas { height: 720px; } }
 /* ReactFlow's zoom controls (+/-/fit) are white-on-white in dark mode without this:
    paint the control box and its buttons with theme tokens so they stay visible. */
-.react-flow__controls { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); border-radius: 6px; overflow: hidden; }
+:root {
+  --rf-controls-shadow: rgba(0, 0, 0, 0.25);
+}
+.react-flow__controls { box-shadow: 0 1px 4px var(--rf-controls-shadow); border-radius: 6px; overflow: hidden; }
 .react-flow__controls button {
   background: var(--surface);
   color: var(--text);
