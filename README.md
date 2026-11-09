@@ -1,10 +1,11 @@
-# Tarun ID-JAG Runner (`idjag-runner-LAB`)
+# Tarun ID-JAG Runner (`idjag-runner-LAB`) LAB
 
 Tier: Tester
+Repo: https://github.com/curtismu7/idjag-runner-LAB
 
 A lab that lets SEs run the PingFederate ID-JAG (Identity Assertion JWT Authorization Grant, cross-app access) demo without Postman. **Real PingFederate only** (owner-approved exception, 2026-11-06; precedent: cimd-lab): no mock mode ships here — the lab refuses to start a flow until a PingFederate 13.1+ runtime is configured.
 
-Default PF runtime: `https://cmuir-pf-acme.ping-devops.com` (idjag-* demo objects pre-created), editable to **any** PingFederate 13.1+ https origin — any host and port are accepted by design (loopback http is allowed for tests only). **SE demo setup:** the idjag-* PF objects (OAuth clients, password-grant token policy, ID-JAG processor policy, resource-AS client) must exist on the target PingFederate before this lab can run a flow. Client secrets are typed per session and are write-only: never returned by any API, never logged, redacted in every trace.
+Default PF runtime: the owner's demo PingFederate host, built into the lab as its default (idjag-* demo objects pre-created), editable to **any** PingFederate 13.1+ https origin — any host and port are accepted by design (loopback http is allowed for tests only). **SE demo setup:** the idjag-* PF objects (OAuth clients, password-grant token policy, ID-JAG processor policy, resource-AS client) must exist on the target PingFederate before this lab can run a flow. Client secrets are typed per session and are write-only: never returned by any API, never logged, redacted in every trace.
 
 ## The flow it drives
 
@@ -64,6 +65,36 @@ docker compose -f deploy/docker-compose.yml down
 ```
 
 The compose publish is `127.0.0.1:`-only (pinned by a test): this lab talks to a real PingFederate with typed secrets, so it must never be reachable from the network. `HOST_PORT=<other>` moves the port.
+
+## Run from a clone
+
+Prerequisites: Node 26 or newer for the host-run form; Docker (OrbStack) only for the Docker form. There is no mock mode: a flow needs a reachable PingFederate 13.1+ runtime.
+
+```bash
+git clone https://github.com/curtismu7/idjag-runner-LAB.git
+cd idjag-runner-LAB
+npm install
+npm run build
+npm run doctor
+npm start
+```
+
+Open http://127.0.0.1:4780/. `GET /api/health` answers `demo-health/1`. Or with Docker: `docker compose -f deploy/docker-compose.yml up --build -d` from the same folder.
+
+## What to do if the port is taken
+
+```
+Ports: idjag-runner-LAB listens on 4780. Docker publishes it on 127.0.0.1:4780 only.
+
+If the port is taken:
+1. Find what is using it:
+   lsof -iTCP:4780 -sTCP:LISTEN -n -P
+2. If it is an old copy of this lab (npm start), stop that process: kill <PID>.
+   If it is this lab's container: docker compose -f deploy/docker-compose.yml down
+3. If it is something else, stop it, or move the Docker form to another port:
+   HOST_PORT=4781 docker compose -f deploy/docker-compose.yml up --build -d
+4. Then start again: npm start, or docker compose -f deploy/docker-compose.yml up -d.
+```
 
 ## Scope-check honesty note
 
