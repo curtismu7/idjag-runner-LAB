@@ -59,6 +59,12 @@ export default function App() {
   const [theme, setTheme] = useState(themeOf());
   const [fontStep, setFontStep] = useState(fontOf());
   const [presenter, setPresenter] = useState(false);
+  const [resetCount, setResetCount] = useState(0);
+
+  const reset = async () => {
+    try { await api('/api/reset', { method: 'POST', body: {} }); } catch { /* reset the view anyway */ }
+    setResetCount((n) => n + 1);
+  };
 
   useEffect(() => {
     const on = (e) => {
@@ -117,6 +123,7 @@ export default function App() {
           fontSize={{ value: fontStep, onChange: setFontStep }}
           help={{ href: 'https://github.com/curtismu7/idjag-runner-LAB#readme' }}
           version={info?.version || null}
+          onReset={reset}
           extra={<span className="shell-runtime" title="Configured PingFederate runtime">{runtimeUrl}</span>}
           present={{ active: presenter, onToggle: () => setPresenter((v) => !v) }}
           talkTrack={{ active: tab === 'talk', onToggle: () => setTab('talk') }}
@@ -132,8 +139,8 @@ export default function App() {
             ))}
           </aside>
         ) : null}
-        {tab === 'flow' ? <FlowTab /> : null}
-        {tab === 'trace' ? <TraceTab /> : null}
+        {tab === 'flow' ? <FlowTab key={`flow-${resetCount}`} /> : null}
+        {tab === 'trace' ? <TraceTab key={`trace-${resetCount}`} /> : null}
         {tab === 'jwks' ? <InspectorTab runtimeUrl={runtimeUrl} onRuntimeChanged={setRuntimeUrl} /> : null}
         {tab === 'diagram' ? <DiagramTab /> : null}
         {tab === 'about' ? <AboutTab /> : null}
