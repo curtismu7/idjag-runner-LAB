@@ -115,9 +115,9 @@ describe('Act 4 expected-refusal styling', () => {
     render(<FlowTab />);
     // Act 3 redeem button is disabled until Act 2 ran
     expect(screen.getByRole('button', { name: 'Redeem ID-JAG' })).toBeDisabled();
-    // simulate Act 2 result by running act1+act2 via mocked fetch
+    // simulate the sign-in: the start phase opens the pi.flow, the submit phase sends the credentials
     fireEvent.change(screen.getByTestId('f-pass'), { target: { value: 'pw' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Run Act 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start pi.flow sign-in' }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     vi.unstubAllGlobals();
   });
@@ -126,14 +126,13 @@ describe('Act 4 expected-refusal styling', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
-      json: () => Promise.resolve({ error: 'act1_failed', message: 'The password grant was refused (HTTP 400)' }),
+      json: () => Promise.resolve({ error: 'act1_failed', message: 'The pi.flow sign-in was refused (HTTP 400)' }),
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<FlowTab />);
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Run Act 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start pi.flow sign-in' }));
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toMatch(/password grant was refused/);
+    expect(alert.textContent).toMatch(/pi.flow sign-in was refused/);
     vi.unstubAllGlobals();
   });
 });
@@ -150,7 +149,7 @@ describe('secret hygiene', () => {
     expect(pass.value).toBe('');
     expect(secret.value).toBe('idjagAcSecret1234');
     fireEvent.change(pass, { target: { value: 'hunter2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Run Act 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start pi.flow sign-in' }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(pass.value).toBe('hunter2'); // still in tab memory for the next act
     vi.unstubAllGlobals();
