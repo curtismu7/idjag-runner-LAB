@@ -1,6 +1,6 @@
 # idjag-runner (ID-JAG Runner LAB)
 
-Tier: Tester. Drives the PingFederate ID-JAG demo (password grant → refresh → ID token; RFC 8693 exchange for an ID-JAG; jwt-bearer redeem + introspection; refusal cases) against a real PF 13.1+. No mock ships here (owner decision 2026-11-06).
+Tier: Tester. Drives the PingFederate ID-JAG demo (pi.flow sign-in → refresh → ID token; RFC 8693 exchange for an ID-JAG; jwt-bearer redeem + introspection; refusal cases) against a real PF 13.1+. No mock ships here (owner decision 2026-11-06).
 
 - Run: `npm install && npm start` (loopback-only, port 4780). Tests: `npm test` (`node --test test/*.test.js` glob, Node 26).
 - Client secrets are write-only: accepted per request, held in-memory per session, never echoed in any response, trace or log.

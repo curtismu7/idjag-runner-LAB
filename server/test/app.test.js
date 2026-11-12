@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createApp, DEMO } from '../src/app.js';
 import { createFakePf, USER, AC, RESOURCE, INTROSPECT, RESOURCE_URI, ID_JAG } from './fakepf.js';
+
+// Act 1 as the page does it: open the pi.flow, then submit the credentials. Returns the submit response.
+async function act1Flow(call, { scope = 'openid', clientId = AC.clientId, clientSecret = AC.clientSecret, password = USER.password, username = USER.username } = {}) {
+  const start = await call('/api/flow/act1', { username, scope, clientId, clientSecret });
+  if (!start.body?.flowStarted) return start;
+  return call('/api/flow/act1', { flowId: start.body.flowId, username, password, scope, clientId, clientSecret });
+}
 import { validateRuntimeUrl, SettingsError } from '../src/settings.js';
 import { assertAllowed } from '../src/outbound.js';
 
@@ -98,13 +105,17 @@ test('full happy flow: act1 password+refresh, act2 all three exchange variants, 
     return r;
   };
 
-  // Act 1
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid profile', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  // Act 1 (pi.flow, two phases): open the flow, then submit the credentials
+  const start1 = await call('/api/flow/act1', { username: USER.username, scope: 'openid profile', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  assert.equal(start1.status, 200, JSON.stringify(start1.body));
+  assert.equal(start1.body.flowStarted, true);
+  assert.match(start1.body.status, /USERNAME_PASSWORD_REQUIRED/);
+  const act1 = await call('/api/flow/act1', { flowId: start1.body.flowId, username: USER.username, password: USER.password, scope: 'openid profile', clientId: AC.clientId, clientSecret: AC.clientSecret });
   assert.equal(act1.status, 200, JSON.stringify(act1.body));
   assert.ok(act1.body.tokens.accessToken);
   assert.ok(act1.body.tokens.refreshToken);
   assert.ok(act1.body.tokens.idToken);
-  assert.ok(Array.isArray(act1.body.trace) && act1.body.trace.length === 2);
+  assert.ok(Array.isArray(act1.body.trace) && act1.body.trace.length === 2); // pi.flow submit + the token hop
   for (const s of act1.body.trace) {
     assert.match(s.request.headers.traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
   }
@@ -152,7 +163,7 @@ test('act4 refusal cases surface PingFederate errors', async (t) => {
     return r;
   };
 
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const act1 = await act1Flow(call, { scope: 'openid' });
   assert.equal(act1.status, 200);
 
   // unauthorized_client: a third, valid client (the introspection client) redeems the ID-JAG; PF authenticates it
@@ -194,14 +205,14 @@ test('client secrets never appear in any trace, response or error body (redactio
     return r;
   };
   const secrets = [AC.clientSecret, RESOURCE.clientSecret, INTROSPECT.clientSecret];
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const act1 = await act1Flow(call, { scope: 'openid' });
   assert.equal(act1.status, 200);
   await call('/api/flow/act2', { subjectKind: 'id_token', resource: RESOURCE_URI, scope: 'bank.read', clientId: AC.clientId, clientSecret: AC.clientSecret });
   const redeem = await call('/api/flow/act3/redeem', { clientId: RESOURCE.clientId, clientSecret: RESOURCE.clientSecret });
   assert.equal(redeem.status, 200);
   const intro = await call('/api/flow/act3/introspect', { clientId: INTROSPECT.clientId, clientSecret: INTROSPECT.clientSecret });
   assert.equal(intro.status, 200);
-  const failed = await call('/api/flow/act1', { username: USER.username, password: 'wrong', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const failed = await act1Flow(call, { password: 'wrong' });
   const every = JSON.stringify([act1.body, redeem.body, intro.body, failed.body]);
   for (const secret of secrets) assert.ok(!every.includes(secret), 'a client secret leaked into a response');
   // The password grant's Basic header is redacted too.
@@ -271,16 +282,11 @@ test('redaction pins: act1 password, returned refresh_token and act2 subject_tok
   // asserted absent — not just that params look redacted.
   const rawResponses = [];
   const pfCalls = [];
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const act1 = await act1Flow(call, { scope: 'openid' });
   assert.equal(act1.status, 200);
   rawResponses.push(JSON.stringify(act1.body));
-  // Capture the raw refresh_token the fake PF issued: call the fake PF directly with the same grant.
-  const direct = await fetch(`${ctx.pf.origin}/as/token.oauth2`, {
-    method: 'POST',
-    headers: { Authorization: `Basic ${Buffer.from(`${AC.clientId}:${AC.clientSecret}`).toString('base64')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'password', username: USER.username, password: USER.password }),
-  });
-  const rawRefreshToken = (await direct.json()).refresh_token;
+  // A raw refresh_token in the fake PF's format (the exact shape the lab's tokens carry).
+  const rawRefreshToken = ctx.pf.mintRefreshToken();
   assert.ok(rawRefreshToken);
   const act2 = await call('/api/flow/act2', { subjectKind: 'refresh_token', resource: RESOURCE_URI, scope: 'bank.read', clientId: AC.clientId, clientSecret: AC.clientSecret });
   assert.equal(act2.status, 200, JSON.stringify(act2.body));
@@ -318,7 +324,7 @@ test('wire traceparent: the fake PF receives a well-formed W3C traceparent on ev
     if (cookie) jar.cookie = cookie.split(';')[0];
     return r;
   };
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const act1 = await act1Flow(call, { scope: 'openid' });
   assert.equal(act1.status, 200);
   await call('/api/flow/act2', { subjectKind: 'id_token', resource: RESOURCE_URI, scope: 'bank.read', clientId: AC.clientId, clientSecret: AC.clientSecret });
   await call('/api/flow/act3/redeem', { clientId: RESOURCE.clientId, clientSecret: RESOURCE.clientSecret, scope: 'bank.read' });
@@ -363,7 +369,7 @@ test('introspection endpoint comes from discovery when advertised (non-default J
     if (cookie) jar.cookie = cookie.split(';')[0];
     return r;
   };
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const act1 = await act1Flow(call, { scope: 'openid' });
   assert.equal(act1.status, 200);
   await call('/api/flow/act2', { subjectKind: 'id_token', resource: RESOURCE_URI, scope: 'bank.read', clientId: AC.clientId, clientSecret: AC.clientSecret });
   const redeem = await call('/api/flow/act3/redeem', { clientId: RESOURCE.clientId, clientSecret: RESOURCE.clientSecret, scope: 'bank.read' });
@@ -387,7 +393,7 @@ test('act4 falls back to the session-stored secret when the body omits clientSec
     if (cookie) jar.cookie = cookie.split(';')[0];
     return r;
   };
-  const act1 = await call('/api/flow/act1', { username: USER.username, password: USER.password, scope: 'openid', clientId: AC.clientId, clientSecret: AC.clientSecret });
+  const act1 = await act1Flow(call, { scope: 'openid' });
   assert.equal(act1.status, 200);
   const act2 = await call('/api/flow/act2', { subjectKind: 'id_token', resource: RESOURCE_URI, scope: 'bank.read', clientId: AC.clientId, clientSecret: AC.clientSecret });
   assert.equal(act2.status, 200);

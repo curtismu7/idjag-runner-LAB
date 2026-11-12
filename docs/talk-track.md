@@ -17,7 +17,7 @@ Cross-app access is the answer to the question nobody likes: an AI agent or a ba
 
 ## Act 1 — get a normal session first
 
-1. Sign in with the password only. Act 1 runs the resource-owner password grant, then a refresh grant that returns the ID token.
+1. Sign in with the password only. Act 1 opens a pi.flow (authorize + the flows API password step — no redirect login), then a refresh grant that returns the ID token.
 2. Say why: an ID-JAG is always minted from an existing subject — you need a real token in hand before you can exchange it. The access token is a JWT signed by the idjagsigning key, so every token decodes in the UI; refresh tokens stay opaque, which is PingFederate's normal behavior.
 
 ## Act 2 — the RFC 8693 token exchange
@@ -54,5 +54,5 @@ Cross-app access is the answer to the question nobody likes: an AI agent or a ba
 
 ## Close
 
-1. Recap the chain: password grant for a subject, RFC 8693 exchange for an ID-JAG bound to one resource and one client, jwt-bearer redeem at the resource, introspection to confirm, and four refusals proving the fences are live.
+1. Recap the chain: pi.flow sign-in for a subject, RFC 8693 exchange for an ID-JAG bound to one resource and one client, jwt-bearer redeem at the resource, introspection to confirm, and four refusals proving the fences are live.
 2. Offer next steps: point the runtime URL at the audience's own PingFederate 13.1+ tenant and run the same acts there.

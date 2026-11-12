@@ -1,9 +1,12 @@
+import crypto from 'node:crypto';
 import { OutboundRefused } from './outbound.js';
 import { safeBody, safeHeaders, safeParams, bareUrl, claimsOf, headerOf, step } from './trace.js';
 
-// The PingFederate client for the ID-JAG demo: discovery (cached 5 min), the password grant, the refresh grant,
-// the RFC 8693 token exchange that mints an ID-JAG, its jwt-bearer redeem at the resource client, and
-// introspection. Every hop returns a trace step (redacted request/response plus the W3C traceparent it carried).
+// The PingFederate client for the ID-JAG demo: discovery (cached 5 min), the pi.flow sign-in (rule 16: login is
+// pi.flow only — authorize with response_mode=pi.flow, the flows API checkUsernamePassword step, then the code for
+// tokens), the refresh grant, the RFC 8693 token exchange that mints an ID-JAG, its jwt-bearer redeem at the
+// resource client, and introspection. Every hop returns a trace step (redacted request/response plus the W3C
+// traceparent it carried). Replaces the former resource-owner password grant (deprecated in OAuth 2.1).
 
 export class LabError extends Error {
   constructor(code, message, status = 502, extra = {}) {
@@ -20,6 +23,12 @@ export const SUBJECT_TYPES = ['id_token', 'refresh_token', 'access_token'];
 
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 const basic = (id, secret) => `Basic ${Buffer.from(`${encodeURIComponent(id)}:${encodeURIComponent(secret)}`).toString('base64')}`;
+const b64url = (b) => Buffer.from(b).toString('base64url');
+// PF's flows API (pi.flow): the checkUsernamePassword step, with its vendor content type and XSRF header.
+const CHECK_USERNAME_PASSWORD = 'application/vnd.pingidentity.checkUsernamePassword+json';
+// The redirect PF validates at authorize and again at the token exchange (it must match exactly). pi.flow never
+// serves or follows this URL; it is the demo client's registered callback.
+const REDIRECT_URI = 'https://oauth.pstmn.io/v1/callback';
 
 // A recorded hop: the request as sent (redacted), PingFederate's answer (redacted) and the traceparent it carried.
 export function hop({ id, title, method, url, headers = {}, params = null, result, claims = null, note = null }) {
@@ -68,6 +77,7 @@ export function createPfClient({ outbound, settings, now = Date.now }) {
     const metadata = {
       issuer: doc.issuer || null,
       raw: doc,
+      authorizationEndpoint: endpoint('authorization_endpoint'),
       tokenEndpoint: endpoint('token_endpoint'),
       jwksUri: endpoint('jwks_uri'),
       introspectionEndpoint: endpoint('introspection_endpoint'),
@@ -115,10 +125,64 @@ export function createPfClient({ outbound, settings, now = Date.now }) {
     return { result, step: s, params: form.body };
   }
 
-  // Act 1a: password grant.
-  async function passwordGrant({ username, password, scope, clientId, clientSecret, traceId }) {
-    const params = { grant_type: 'password', username, password, scope: scope || '' };
-    return tokenRequest({ id: 'act1-password', title: 'Resource-owner password grant', clientId, clientSecret, params, traceId });
+  // Act 1a: the pi.flow sign-in, phase 1 — open the flow (authorize, PKCE S256, response_mode=pi.flow; the
+  // redirect_uri is only validated by PF, never served or followed). Returns the flow id and the PKCE/state
+  // material plus the PF session cookie jar the submit phase replays; all of it stays in the lab session.
+  async function piFlowStart({ scope, clientId, clientSecret, traceId }) {
+    const { metadata } = await discover({ traceId });
+    const verifier = b64url(crypto.randomBytes(32));
+    const state = b64url(crypto.randomBytes(16));
+    const nonce = b64url(crypto.randomBytes(16));
+    const url = new URL(metadata.authorizationEndpoint);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('redirect_uri', REDIRECT_URI);
+    url.searchParams.set('scope', scope || 'openid');
+    url.searchParams.set('state', state);
+    url.searchParams.set('nonce', nonce);
+    url.searchParams.set('code_challenge', crypto.createHash('sha256').update(verifier).digest('base64url'));
+    url.searchParams.set('code_challenge_method', 'S256');
+    url.searchParams.set('response_mode', 'pi.flow');
+    const result = await call(url.toString(), { method: 'GET', headers: { Accept: 'application/json' }, traceId });
+    const flow = result.json || {};
+    const step = hop({ id: 'act1-piflow-start', title: 'Authorize (response_mode=pi.flow, PKCE S256)', method: 'GET', url: metadata.authorizationEndpoint, params: Object.fromEntries(url.searchParams), result });
+    const jar = {};
+    for (const c of result.setCookie ?? []) { const kv = String(c).split(';')[0]; const i = kv.indexOf('='); if (i > 0) jar[kv.slice(0, i).trim()] = kv.slice(i + 1); }
+    return { result, step, flowId: typeof flow.id === 'string' ? flow.id : null, flowStatus: flow.status ?? null, verifier, state, nonce, jar };
+  }
+
+  // Act 1a: the pi.flow sign-in, phase 2 — submit the credentials to the flows API (checkUsernamePassword), then
+  // trade the authorizeResponse code for tokens with the PKCE verifier. The password is used once here and kept
+  // only in the lab session for Act 4's wrong-scope probe (which now probes the authorize step instead).
+  async function piFlowSubmit({ flowId, verifier, state, nonce, username, password, scope, clientId, clientSecret, traceId, jar = {} }) {
+    const { metadata } = await discover({ traceId });
+    // PF's flows API lives under /pf-ws/authn and wants the vendor content type + the XSRF header + the flow cookie.
+    const checkUrl = new URL(metadata.issuer);
+    checkUrl.pathname = '/pf-ws/authn/flows/' + encodeURIComponent(flowId);
+    const cookieHeader = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const result = await call(checkUrl.toString(), {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': CHECK_USERNAME_PASSWORD, 'X-XSRF-Header': 'PingFederate', ...(cookieHeader ? { Cookie: cookieHeader } : {}) },
+      body: JSON.stringify({ username, password }),
+      traceId,
+    });
+    const flow = result.json || {};
+    const step = hop({ id: 'act1-piflow-credentials', title: 'Flows API: username and password (checkUsernamePassword)', method: 'POST', url: checkUrl.toString(), params: { username, password: '<typed in the form; never shown>' }, result });
+    if (!result.ok) return { result, step, tokens: null };
+    const code = flow.authorizeResponse?.code;
+    if (flow.status !== 'COMPLETED' || typeof code !== 'string') {
+      return { result, step, tokens: null, incomplete: flow.status ?? 'unknown' };
+    }
+    if (flow.authorizeResponse.state !== state) {
+      return { result, step, tokens: null, badState: true };
+    }
+    const token = await tokenRequest({
+      id: 'act1-token', title: 'Token: the code for tokens (PKCE verifier)',
+      clientId, clientSecret,
+      params: { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: REDIRECT_URI },
+      traceId,
+    });
+    return { result: token.result, step: token.step, tokens: token.result.ok ? token.result.json : null };
   }
 
   // Act 1b: refresh grant (PingFederate issues an ID token on the refresh grant when OIDC is on the client).
@@ -186,7 +250,7 @@ export function createPfClient({ outbound, settings, now = Date.now }) {
   };
 
   return {
-    runtime, discover, passwordGrant, refreshGrant, tokenExchange, jwtBearer, introspect, refusalProbe, jwtView,
+    runtime, discover, piFlowStart, piFlowSubmit, refreshGrant, tokenExchange, jwtBearer, introspect, refusalProbe, jwtView,
     clearCache: () => { cache = null; },
   };
 }

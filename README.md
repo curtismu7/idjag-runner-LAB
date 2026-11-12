@@ -9,7 +9,7 @@ Default PF runtime: the owner's demo PingFederate host, built into the lab as it
 
 ## The flow it drives
 
-- **Act 1** — resource-owner password grant (`grant_type=password`), then a refresh grant that returns the ID token.
+- **Act 1** — pi.flow sign-in (`response_mode=pi.flow`, PKCE S256: authorize + the flows API `checkUsernamePassword` step, then the code for tokens — no redirect login, no password grant), then a refresh grant that returns the ID token.
 - **Act 2** — RFC 8693 token exchange for an ID-JAG (`requested_token_type=urn:ietf:params:oauth:token-type:id-jag`), three subject variants: ID token, refresh token, access token. The ID-JAG's header (`typ: oauth-id-jag+jwt`) and claims (iss/aud/sub/exp/scope/resource) are decoded and shown.
 - **URL:** local run http://127.0.0.1:4780 — also served through the shared lab-proxy at **https://local.ping-devops.com:8443/idjag-runner/** (no new /etc/hosts entries; the proxy route lives in `AI-DEMO-Standalone/shared/lab-proxy/nginx.conf`).
 - Access tokens are **JWTs** (RS256, signed by the `idjagsigning` key) so every token decodes in the UI; refresh tokens stay opaque references (PF behavior). **Act 3** — jwt-bearer redeem of the ID-JAG at the resource-AS client, then introspection (`POST /as/introspect.oauth2`, or the runtime's advertised `introspection_endpoint` when discovery includes one) with a third client.
