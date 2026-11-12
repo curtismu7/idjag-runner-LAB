@@ -70,6 +70,8 @@ export function createOutbound({ getAllowedOrigin, fetchImpl = globalThis.fetch,
     }
     let json = null;
     if (!truncated && text) { try { json = JSON.parse(text); } catch { json = null; } }
+    // The IdP ties a pi.flow to its session cookies; the caller replays them (a lab-session cookie jar).
+    const setCookie = typeof response.headers.getSetCookie === 'function' ? response.headers.getSetCookie() : [];
     // A redirect is reported, never followed. Its target is shown only when it stays on the configured origin.
     let location = null;
     const raw = response.headers.get('location');
@@ -87,6 +89,7 @@ export function createOutbound({ getAllowedOrigin, fetchImpl = globalThis.fetch,
       json: json && typeof json === 'object' ? json : null,
       truncated,
       location,
+      setCookie,
       traceparent: tp,
     };
   }

@@ -56,6 +56,7 @@ export default function FlowTab() {
   const [exchangeScope, setExchangeScope] = useState(ACT2_DEFAULTS.scope);
 
   const [act1Result, setAct1Result] = useState(null);
+  const [piFlow, setPiFlow] = useState(null); // { flowId, status } once the authorize flow is open
   const [act2Result, setAct2Result] = useState(null);
   const [redeemResult, setRedeemResult] = useState(null);
   const [introResult, setIntroResult] = useState(null);
@@ -89,8 +90,8 @@ export default function FlowTab() {
       <FlowDiagramDetails />
 
       <section className="card card--neutral" aria-labelledby="act1-h">
-        <h3 id="act1-h">PingFederate · IdP — sign in (password grant, then refresh grant)</h3>
-        <p className="card-sub">Proves: a real PingFederate issues access + refresh tokens, and the refresh grant returns the ID token.</p>
+        <h3 id="act1-h">PingFederate · IdP — sign in (pi.flow, then refresh grant)</h3>
+        <p className="card-sub">Proves: a real PingFederate issues access + refresh tokens via a pi.flow sign-in (authorize + the flows API password step — no redirect, no password grant), and the refresh grant returns the ID token.</p>
         <div className="form-grid">
           <Field id="f-user" label="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
           <label htmlFor="f-pass">
@@ -106,11 +107,30 @@ export default function FlowTab() {
         </div>
         <p className="secret-note">Secrets stay in this tab's memory only — never saved, never sent anywhere but your PingFederate.</p>
         <div className="actions">
-          <button className="primary" disabled={busy || !password || !clientSecret}
-            onClick={() => run('/api/flow/act1', { username, password, clientId, clientSecret, scope }, setAct1Result)}>
-            Run Act 1
-          </button>
+          {!piFlow && (
+            <button className="primary" disabled={busy || !clientSecret}
+              onClick={async () => {
+                await run('/api/flow/act1', { username, clientId, clientSecret, scope }, (r) => {
+                  if (r?.flowStarted) setPiFlow({ flowId: r.flowId, status: r.status });
+                  setAct1Result(null);
+                });
+              }}>
+              Start pi.flow sign-in
+            </button>
+          )}
+          {piFlow && (
+            <button className="primary" disabled={busy || !password || !clientSecret}
+              onClick={async () => {
+                await run('/api/flow/act1', { flowId: piFlow.flowId, username, password, clientId, clientSecret, scope }, (r) => {
+                  if (r?.tokens) { setPiFlow(null); }
+                  setAct1Result(r);
+                });
+              }}>
+              Submit credentials
+            </button>
+          )}
         </div>
+        {piFlow && <p className="secret-note" data-testid="piflow-open">The pi.flow is open at PingFederate ({piFlow.status}). Type the password and submit — it goes once to PF's flows API, never stored.</p>}
         {act1Result ? (
           <div className="token-panel">
             <TokenView label="ID token" view={act1Result.tokens.idToken} />

@@ -147,37 +147,56 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
   }));
   app.get('/api/settings', wrap(() => settings.publicView()));
 
-  // Act 1: password grant, then the refresh grant (which returns the ID token).
+  // Act 1: the pi.flow sign-in (rule 16), then the refresh grant (which returns the ID token).
+  // Phase 1 (no flowId): open the authorize flow (response_mode=pi.flow, PKCE S256) and return its id —
+  // the page then collects the password and calls again with it. The PKCE verifier, state and scope stay
+  // in session memory so the submit phase and Act 4's wrong-scope probe use exactly what was opened.
   app.post('/api/flow/act1', wrap(async (req) => {
     const body = req.body || {};
-    // Demo defaults (SE guide setup): only the password is truly required.
-    requireFields(body, ['password']);
     const act1ClientId = str(body.clientId) || 'idjag-ac-client';
     const act1Secret = str(body.clientSecret) || DEMO_CLIENT_SECRETS[act1ClientId] || '';
     if (act1Secret) req.session.secrets.act1 = act1Secret;
-    // The password is kept in session memory only (like the client secret) so Act 4's
-    // access-denied case can re-run the grant with a forbidden scope. Never returned by any API.
+    const traceId = newTraceId();
+    const scope = str(body.scope) || 'openid chat.read chat.history';
+
+    if (!str(body.flowId)) {
+      const started = await pf.piFlowStart({ scope, clientId: act1ClientId, clientSecret: act1Secret, traceId });
+      if (!started.result.ok || !started.flowId) {
+        throw new LabError('act1_start_failed', `PingFederate did not open a pi.flow (HTTP ${started.result.status})`, 502, { trace: [started.step] });
+      }
+      req.session.piFlow = { flowId: started.flowId, verifier: started.verifier, state: started.state, nonce: started.nonce, scope, jar: started.jar };
+      return { flowStarted: true, flowId: started.flowId, status: started.flowStatus, trace: [started.step] };
+    }
+
+    // Phase 2: submit the credentials (the password is kept in session memory only so Act 4's
+    // access-denied case can re-probe with a forbidden scope; never returned by any API).
+    requireFields(body, ['password']);
+    const run = req.session.piFlow || {};
+    if (run.flowId !== str(body.flowId)) throw new LabError('flow_mismatch', 'This flow id is not the one this session opened', 409);
     if (str(body.password)) req.session.secrets.password = str(body.password);
     if (str(body.username)) req.session.username = str(body.username);
-    const traceId = newTraceId();
-    const trace = [];
-    const first = await pf.passwordGrant({
-      username: str(body.username) || 'demouser', password: str(body.password), scope: str(body.scope) || 'openid chat.read chat.history',
-      clientId: act1ClientId, clientSecret: act1Secret, traceId,
+    const submitted = await pf.piFlowSubmit({
+      flowId: str(body.flowId), verifier: run.verifier, state: run.state, nonce: run.nonce,
+      username: str(body.username) || 'demouser', password: str(body.password), scope,
+      clientId: act1ClientId, clientSecret: act1Secret, traceId, jar: run.jar ?? {},
     });
-    trace.push(first.step);
-    if (!first.result.ok) throw new LabError('act1_failed', `The password grant was refused (HTTP ${first.result.status})`, 502, { trace });
-    const tokens = { ...first.result.json };
-    let refresh = null;
+    const trace = [submitted.step];
+    if (submitted.badState) throw new LabError('act1_failed', 'The code came back with the wrong state; the lab refuses it', 502, { trace });
+    if (!submitted.tokens) {
+      if (submitted.incomplete) throw new LabError('act1_step_unsupported', `PingFederate asked for a step this lab does not drive (${submitted.incomplete})`, 409, { trace });
+      throw new LabError('act1_failed', `The pi.flow sign-in was refused (HTTP ${submitted.result.status})`, submitted.result.status === 400 ? 401 : 502, { trace });
+    }
+    const tokens = { ...submitted.tokens };
     if (tokens.refresh_token) {
-      refresh = await pf.refreshGrant({
-        refreshToken: tokens.refresh_token, scope: str(body.scope) || 'openid chat.read chat.history',
+      const refresh = await pf.refreshGrant({
+        refreshToken: tokens.refresh_token, scope,
         clientId: act1ClientId, clientSecret: act1Secret, traceId,
       });
       trace.push(refresh.step);
       if (refresh.result.ok && refresh.result.json?.id_token) tokens.id_token = refresh.result.json.id_token;
     }
     req.session.tokens.act1 = tokens;
+    req.session.piFlow = null;
     return {
       tokens: {
         accessToken: tokenView(tokens.access_token),
@@ -305,11 +324,9 @@ export function createApp({ port, fetchImpl = globalThis.fetch, now = Date.now, 
       });
       step = r.step; result = r.result;
     } else {
-      // access_denied: ask for a grant whose scope is outside the client's allowlist. PF refuses the
-      // GRANT itself (invalid_scope) — the exchange cannot widen what the client was granted.
-      const r = await pf.passwordGrant({
-        username: str(body.username) || req.session.username || 'demouser',
-        password: str(body.password) || req.session.secrets.password || '',
+      // access_denied: open a pi.flow asking for a scope outside the client's allowlist. PF refuses the
+      // AUTHORIZATION (invalid_scope / access_denied at authorize) — a client cannot widen its grant.
+      const r = await pf.piFlowStart({
         scope: str(body.wrongScope) || 'accounts:read',
         clientId: clients.id, clientSecret: secretFor(clients.id), traceId,
       });

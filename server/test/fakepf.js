@@ -18,6 +18,8 @@ export const ID_JAG = 'urn:ietf:params:oauth:token-type:id-jag';
 export function createFakePf({ failUnauthorizedClient = false, failWrongResource = false, altJwks = false } = {}) {
   const jwksPath = altJwks ? '/my/custom/jwks.json' : '/pf/JWKS';
   const hops = []; // every token/introspect hop the fake PF received, with its wire traceparent
+  const flows = new Map(); // pi.flow: flowId -> { cookie, challenge, state }
+  const codes = new Map(); // authorization code -> { challenge, state }
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => { raw += c; });
@@ -25,8 +27,8 @@ export function createFakePf({ failUnauthorizedClient = false, failWrongResource
       if (req.url === '/as/token.oauth2' || req.url === '/as/introspect.oauth2') {
         hops.push({ url: req.url, traceparent: req.headers.traceparent || null });
       }
-      const json = (status, body) => {
-        res.writeHead(status, { 'Content-Type': 'application/json' });
+      const json = (status, body, headers = {}) => {
+        res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
         res.end(JSON.stringify(body));
       };
       const basicAuth = () => {
@@ -43,7 +45,8 @@ export function createFakePf({ failUnauthorizedClient = false, failWrongResource
         [INTROSPECT.clientId, INTROSPECT.clientSecret],
       ];
       const auth = basicAuth();
-      const isOpen = req.url === '/.well-known/openid-configuration' || req.url === jwksPath;
+      const isOpen = req.url === '/.well-known/openid-configuration' || req.url === jwksPath
+        || req.url.startsWith('/as/authorization.oauth2') || Boolean(/^\/pf-ws\/authn\/flows\//.exec(req.url));
       if (!isOpen && (!auth || !clients.some(([id, s]) => id === auth.id && s === auth.secret))) {
         return formError(401, 'invalid_client', 'client authentication failed');
       }
@@ -51,6 +54,7 @@ export function createFakePf({ failUnauthorizedClient = false, failWrongResource
       if (req.url === '/.well-known/openid-configuration') {
         return json(200, {
           issuer: origin,
+          authorization_endpoint: `${origin}/as/authorization.oauth2`,
           token_endpoint: `${origin}/as/token.oauth2`,
           jwks_uri: `${origin}${jwksPath}`,
           ...(altJwks ? { introspection_endpoint: `${origin}/as/token-introspect.custom` } : {}),
@@ -63,26 +67,58 @@ export function createFakePf({ failUnauthorizedClient = false, failWrongResource
         const token = params.get('token') || '';
         return json(200, token ? { active: true, scope: 'openid profile', client_id: auth.id, token_type: 'Bearer', exp: Math.floor(Date.now() / 1000) + 300 } : { active: false });
       }
+      // pi.flow: the authorize opens a JSON flow (rule 16: no redirect login). The redirect_uri is validated,
+      // never served. The scope allowlist per client is enforced here (like PF restrictScopes).
+      if (req.url.startsWith('/as/authorization.oauth2')) {
+        const q = new URL(req.url, 'http://x').searchParams;
+        if (q.get('response_mode') !== 'pi.flow') return formError(400, 'unsupported_response_mode', 'fake PF: pi.flow only (no redirect login)');
+        if (!clients.some(([id]) => id === q.get('client_id'))) return formError(401, 'invalid_client', 'unknown client_id');
+        if (q.get('response_type') !== 'code' || q.get('code_challenge_method') !== 'S256' || !q.get('code_challenge') || !q.get('redirect_uri')) {
+          return formError(400, 'invalid_request', 'fake PF: code + PKCE S256 + redirect_uri required');
+        }
+        const allowed = q.get('client_id') === AC.clientId
+          ? ['openid', 'profile', 'chat.read', 'chat.history', 'offline_access']
+          : ['openid', 'profile'];
+        const asked = (q.get('scope') || '').split(' ').filter(Boolean);
+        if (asked.some((sc) => !allowed.includes(sc))) {
+          return formError(400, 'invalid_scope', 'The requested scope is invalid, unknown, malformed, or exceeds that which the client is permitted to request.');
+        }
+        const flowId = `flow-${crypto.randomBytes(8).toString('hex')}`;
+        const st = crypto.randomBytes(12).toString('hex');
+        flows.set(flowId, { cookie: st, challenge: q.get('code_challenge'), state: q.get('state') });
+        return json(200, { id: flowId, status: 'USERNAME_PASSWORD_REQUIRED' }, { 'Set-Cookie': [`PF=ST=${st}; Path=/; HttpOnly`] });
+      }
+      const fm = /^\/pf-ws\/authn\/flows\/([a-z0-9-]+)$/.exec(req.url);
+      if (req.method === 'POST' && fm) {
+        const f = flows.get(fm[1]);
+        const cookie = /(?:^|;\s*)PF=ST=([^;]+)/.exec(String(req.headers.cookie || ''))?.[1] ?? null;
+        if (!f || cookie !== f.cookie) return json(401, { code: 'UNAUTHORIZED', message: 'fake PF: the flow cookie is missing' });
+        if (req.headers['content-type'] !== 'application/vnd.pingidentity.checkUsernamePassword+json') {
+          return json(415, { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'fake PF: use the vendor content type' });
+        }
+        let b = {}; try { b = JSON.parse(raw); } catch { /* invalid below */ }
+        if (b.username !== USER.username || b.password !== USER.password) {
+          return json(400, { code: 'CREDENTIAL_VALIDATION_FAILED', details: [{ code: 'INVALID_VALUE', message: 'Invalid username or password' }] });
+        }
+        const code = crypto.randomBytes(12).toString('hex');
+        codes.set(code, { challenge: f.challenge, state: f.state });
+        flows.delete(fm[1]);
+        return json(200, { id: fm[1], status: 'COMPLETED', authorizeResponse: { code, state: f.state } });
+      }
       if (req.url === '/as/token.oauth2') {
         const grant = params.get('grant_type');
-        if (grant === 'password') {
-          if (params.get('username') !== USER.username || params.get('password') !== USER.password) {
-            return formError(400, 'invalid_grant', 'The credentials are wrong');
-          }
-          // Scope allowlist per client (like PF restrictScopes): an out-of-allowlist scope is refused.
-          const allowed = auth.id === AC.clientId
-            ? ['openid', 'profile', 'chat.read', 'chat.history', 'offline_access']
-            : ['openid', 'profile'];
-          const asked = (params.get('scope') || '').split(' ').filter(Boolean);
-          if (asked.some((s) => !allowed.includes(s))) {
-            return formError(400, 'invalid_scope', 'The requested scope is invalid, unknown, malformed, or exceeds that which the client is permitted to request.');
+        if (grant === 'authorization_code') {
+          const c = codes.get(params.get('code') || '');
+          codes.delete(params.get('code') || '');
+          if (!c || crypto.createHash('sha256').update(String(params.get('code_verifier') || '')).digest('base64url') !== c.challenge) {
+            return formError(400, 'invalid_grant', 'bad code or PKCE verifier');
           }
           return json(200, {
-            access_token: signJwt({ iss: origin, sub: params.get('username'), scope: params.get('scope') || '', exp: Math.floor(Date.now() / 1000) + 300 }),
+            access_token: signJwt({ iss: origin, sub: USER.username, scope: 'openid profile', exp: Math.floor(Date.now() / 1000) + 300 }),
             refresh_token: `refresh-${crypto.randomBytes(8).toString('hex')}`,
             token_type: 'Bearer',
             expires_in: 300,
-            scope: params.get('scope') || '',
+            scope: 'openid profile',
           });
         }
         if (grant === 'refresh_token') {
@@ -142,6 +178,7 @@ export function createFakePf({ failUnauthorizedClient = false, failWrongResource
       resolve({
         origin,
         hops,
+        mintRefreshToken: () => `refresh-${crypto.randomBytes(8).toString('hex')}`,
         close: () => new Promise((done) => server.close(done)),
       });
     });
