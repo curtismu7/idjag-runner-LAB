@@ -5,6 +5,7 @@ COPY package.json package-lock.json ./
 COPY server/package.json server/
 COPY web/package.json web/
 RUN npm ci --no-audit --no-fund
+COPY docs docs
 COPY web web
 RUN npm run build -w web
 
