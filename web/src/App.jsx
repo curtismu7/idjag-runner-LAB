@@ -7,6 +7,7 @@ import AboutTab from './AboutTab.jsx';
 import SeGuideTab from './SeGuideTab.jsx';
 import DiagramView from './DiagramView.jsx';
 import { DiagramTab } from './DiagramTab.jsx';
+import TopMenu, { applyFontSize } from './top-menu/TopMenu.jsx';
 import ShelfLink from './components/ShelfLink.jsx';
 
 const TABS = [
@@ -26,6 +27,8 @@ export default function App() {
   const [tab, setTab] = useState('flow');
   const [runtimeUrl, setRuntimeUrl] = useState('');
   const [theme, setTheme] = useState(themeOf());
+  const [fontStep, setFontStep] = useState(() => { try { const f = localStorage.getItem('idjag_font'); return ['S','M','L'].includes(f) ? f : 'M'; } catch { return 'M'; } });
+  const [info, setInfo] = useState(null);
 
   useEffect(() => {
     api('/api/info').then((info) => setRuntimeUrl(info.runtimeUrl)).catch(() => setRuntimeUrl('(unreachable)'));
@@ -40,6 +43,8 @@ export default function App() {
       else localStorage.removeItem('idjag_theme');
     } catch { /* ignore */ }
   }, [theme]);
+  useEffect(() => { applyFontSize(fontStep); try { localStorage.setItem('idjag_font', fontStep); } catch {} }, [fontStep]);
+  useEffect(() => { api('/api/info').then(setInfo).catch(() => {}); }, []);
 
   // Secrets live only in component state; a page unload clears them with the tab's memory.
   useEffect(() => {
@@ -65,15 +70,15 @@ export default function App() {
           ))}
         </nav>
         <div className="shell-right">
-          <ShelfLink headers={{ 'X-Lab-Workspace': WORKSPACE }} />
-          <span className="shell-runtime" title="Configured PingFederate runtime">{runtimeUrl}</span>
-          <label className="inline">Theme
-            <select value={theme} onChange={(e) => setTheme(e.target.value)} data-testid="theme">
-              <option value="">Auto</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
+          <TopMenu
+            theme={{ value: theme === '' ? 'auto' : theme, onChange: (t) => setTheme(t === 'auto' ? '' : t) }}
+            fontSize={{ value: fontStep, onChange: setFontStep }}
+            help={{ href: 'https://github.com/curtismu7/idjag-runner-LAB#readme' }}
+            version={info?.version || null}
+            extra={<span className="shell-runtime" title="Configured PingFederate runtime">{runtimeUrl}</span>}
+          >
+            <ShelfLink headers={{ 'X-Lab-Workspace': WORKSPACE }} />
+          </TopMenu>
         </div>
       </header>
       <main className="page">
