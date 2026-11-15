@@ -102,6 +102,17 @@ test('doctor exits 0 and prints one line per check', () => {
   assert.ok(lines.every((l) => l.startsWith('ok')), out);
 });
 
+test('built SE guide is self-contained: the vendored standalone-ui.css is inlined, no stylesheet link (run npm run build first)', () => {
+  const built = path.join(root, 'web', 'dist', 'idjag-se-guide.html');
+  assert.ok(fs.existsSync(built), 'web/dist/idjag-se-guide.html missing: run npm run build first');
+  const html = fs.readFileSync(built, 'utf8');
+  const css = fs.readFileSync(path.join(root, 'web', 'src', 'standalone-ui.css'), 'utf8');
+  assert.doesNotMatch(html, /<link[^>]*rel=["']?stylesheet/i);
+  assert.doesNotMatch(html, /standalone-ui\.css["']/);
+  assert.ok(html.includes(`<style>\n${css}</style>`), 'the vendored stylesheet bytes are not inlined in a <style>');
+  assert.match(html, /<header class="shell-bar">/);
+});
+
 test('reset script prints and exits 0 when no lab is running, refuses a non-loopback LAB_URL', () => {
   const run = (env) => execFileSync(process.execPath, [path.join(root, 'scripts', 'reset.mjs')], { encoding: 'utf8', env: { ...process.env, ...env } });
   const out = run({ PORT: '4789' });
