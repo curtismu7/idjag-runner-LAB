@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from './api.js';
 import { Banner, Chip, ClaimsTable, TraceSteps, ErrorBox } from './components.jsx';
+import Json from './components/JsonPane.jsx';
 
 const b64urlDecodeJson = (p) => {
   const pad = p + '='.repeat((4 - (p.length % 4)) % 4);
@@ -23,9 +24,7 @@ function KeyCard({ k }) {
       {k.n || k.x5c ? (
         <>
           <button className="linkish" onClick={() => setOpen(!open)}>{open ? 'Hide key material' : 'Show key material'}</button>
-          {open ? (
-            <pre className="mono">{JSON.stringify(k, null, 2)}</pre>
-          ) : null}
+          {open ? <Json value={k} label="Public key (JWK)" hot={['kid', 'x5t', 'alg', 'use']} /> : null}
         </>
       ) : null}
     </div>
@@ -145,11 +144,9 @@ export default function InspectorTab({ runtimeUrl, onRuntimeChanged }) {
       <ErrorBox error={decodeError} />
       {decoded ? (
         <div className="token-panel" data-testid="decode-result">
+          <h4>Header</h4>
+          <Json value={decoded.header} label="Token header" hot={['typ', 'alg', 'kid', 'x5t']} />
           <dl className="kv">
-            <dt>typ</dt><dd className="mono">{decoded.header.typ || '—'}</dd>
-            <dt>alg</dt><dd className="mono">{decoded.header.alg || '—'}</dd>
-            <dt>kid</dt><dd className="mono">{decoded.header.kid || '—'}</dd>
-            <dt>x5t</dt><dd className="mono">{decoded.header.x5t || '—'}</dd>
             <dt>signature</dt><dd className="mono">{decoded.signaturePart || '—'}</dd>
             <dt>key in JWKS?</dt>
             <dd>
@@ -159,7 +156,7 @@ export default function InspectorTab({ runtimeUrl, onRuntimeChanged }) {
             </dd>
           </dl>
           <h4>Claims</h4>
-          <ClaimsTable claims={decoded.claims} />
+          <ClaimsTable claims={decoded.claims} label="Token claims" />
           <TraceSteps steps={decoded.trace} />
         </div>
       ) : null}
