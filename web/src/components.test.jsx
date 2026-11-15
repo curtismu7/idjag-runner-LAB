@@ -30,7 +30,8 @@ describe('TraceSteps hostile fixtures', () => {
     const list = screen.getByTestId('trace-list');
     expect(list.querySelectorAll('details').length).toBe(4);
     expect(screen.getByText('real hop')).toBeTruthy();
-    expect(screen.getByText('500')).toBeTruthy();
+    // the huge response (over JsonPane's 150k-character guard) is shown as plain text, so the status is read from that text, not a Form value
+    expect(list.textContent).toContain('"status": 500');
     expect(screen.getByText('refused')).toBeTruthy();
   });
 
