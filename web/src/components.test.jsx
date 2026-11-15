@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup } from '@testing-library/react';
 import { TraceSteps } from './components.jsx';
+import { setJsonView } from './components/JsonPane.jsx';
 
 const bigString = 'x'.repeat(500 * 1024);
 
-beforeEach(cleanup);
+beforeEach(() => { cleanup(); setJsonView('form'); });
 
 describe('TraceSteps hostile fixtures', () => {
   it('renders nothing for a non-array or empty steps value', () => {
@@ -31,6 +32,15 @@ describe('TraceSteps hostile fixtures', () => {
     expect(screen.getByText('real hop')).toBeTruthy();
     expect(screen.getByText('500')).toBeTruthy();
     expect(screen.getByText('refused')).toBeTruthy();
+  });
+
+  it("shows each hop's request and response through the shared JsonPane, status marked hot", () => {
+    const steps = [{ id: 'h', title: 'hop', request: { method: 'POST', url: 'https://pf.example/as/token.oauth2', headers: { Accept: 'application/json' } }, response: { status: 200, body: { token_type: 'Bearer' } } }];
+    const { container } = render(<TraceSteps steps={steps} />);
+    const boxes = container.querySelectorAll('.jsonbox');
+    expect([...boxes].map((b) => b.querySelector('.json').getAttribute('aria-label'))).toEqual(['Request', 'Response']);
+    expect(container.querySelector('pre')).toBeNull(); // Form view: no hand-rolled pre
+    expect([...container.querySelectorAll('.jform__row[data-hot="true"] .jform__k')].map((k) => k.textContent)).toContain('status');
   });
 
   it('survives a 500 KB string claim without crashing or freezing', () => {

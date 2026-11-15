@@ -5,6 +5,7 @@ import React from 'react';
 import App from './App.jsx';
 import FlowTab from './FlowTab.jsx';
 import { TokenView } from './components.jsx';
+import { setJsonView } from './components/JsonPane.jsx';
 import { isExpectedRefusal, relativeExpiry, WORKSPACE } from './api.js';
 
 const FIXTURE_HEADER = btoa(JSON.stringify({ alg: 'RS512', typ: 'oauth-id-jag+jwt', kid: 'test-key' }))
@@ -17,6 +18,7 @@ beforeEach(() => {
   cleanup();
   localStorage.clear();
   sessionStorage.clear();
+  setJsonView('form'); // the Form | JSON choice is shared module state: tests that read pane text say which view they mean
 });
 
 describe('App shell', () => {
@@ -62,6 +64,18 @@ describe('decoded token panel', () => {
     const typ = screen.getByText('typ: oauth-id-jag+jwt');
     expect(typ.className).toMatch(/typ-jag/);
     expect(screen.getByText('https://pf.example')).toBeTruthy();
+  });
+
+  it('shows the claims through the shared JsonPane: Form | JSON toggle, JSON view colored, lab keys marked', () => {
+    const { container } = render(<TokenView label="ID-JAG" view={{ masked: 'eyJhbXc...c2ln', length: 100, kind: 'JWT', header: { typ: 'oauth-id-jag+jwt' }, claims: { iss: 'https://pf.example', resource: 'https://api.example.example/bank' } }} />);
+    expect(screen.getByRole('button', { name: 'Form' })).toHaveAttribute('aria-pressed', 'true');
+    // iss is a shared default; resource is this lab's own hot key
+    expect([...container.querySelectorAll('.jform__row[data-hot="true"] > .jform__k')].map((k) => k.textContent)).toEqual(['iss', 'resource']);
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+    const raw = container.querySelector('pre.json--raw');
+    expect(raw.getAttribute('aria-label')).toBe('ID-JAG claims');
+    expect(raw.textContent).toMatch(/"resource": "https:\/\/api\.example\.example\/bank"/);
+    expect(raw.querySelector('.jtok--hot')).not.toBeNull();
   });
 
   it('shows an access token typ without the ID-JAG highlight', () => {

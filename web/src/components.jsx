@@ -1,5 +1,6 @@
 import React from 'react';
 import { truncateMiddle, relativeExpiry } from './api.js';
+import Json from './components/JsonPane.jsx';
 
 export function Banner() {
   return (
@@ -13,18 +14,13 @@ export function Chip({ kind, children }) {
   return <span className={`chip chip--${kind}`}>{children}</span>;
 }
 
-export function ClaimsTable({ claims }) {
+// What this lab's readers look for first in a claims payload (on top of the shared defaults sub, aud, scope, client_id, iss ...):
+// the resource the ID-JAG is for, and whether an introspected token is active.
+const CLAIMS_HOT = ['resource', 'active', 'token_type'];
+
+export function ClaimsTable({ claims, label = 'Claims' }) {
   if (!claims || typeof claims !== 'object') return <p className="card-sub">No decoded claims (opaque token).</p>;
-  return (
-    <dl className="kv">
-      {Object.entries(claims).map(([k, v]) => (
-        <React.Fragment key={k}>
-          <dt>{k}</dt>
-          <dd className="mono">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</dd>
-        </React.Fragment>
-      ))}
-    </dl>
-  );
+  return <Json value={claims} label={label} hot={CLAIMS_HOT} />;
 }
 
 export function TokenView({ label, view }) {
@@ -37,32 +33,22 @@ export function TokenView({ label, view }) {
         {typ ? <code className={`mono${typ === 'oauth-id-jag+jwt' ? ' typ-jag' : ''}`}>typ: {typ}</code> : null}
         <span className="card-sub mono">{view.masked} ({view.length} chars, {view.kind})</span>
       </h4>
-      <ClaimsTable claims={view.claims} />
+      <ClaimsTable claims={view.claims} label={`${label} claims`} />
       {view.claims?.exp ? <p className="card-sub">{relativeExpiry(view.claims)}</p> : null}
     </div>
   );
 }
 
-function Primitives({ value }) {
-  if (value === null) return <em>null</em>;
-  if (typeof value === 'object') return <pre className="code">{JSON.stringify(value, null, 2)}</pre>;
-  if (typeof value === 'string' && (value.startsWith('http') || value.startsWith('00-'))) return <span className="mono">{value}</span>;
-  return String(value);
-}
+// One hop's request or response, as the JSON it is. status, resource, the token types and traceparent are what a reader
+// follows across hops; the shared defaults (grant_type, scope, client_id, tokens ...) are hot already.
+const HOP_HOT = ['status', 'resource', 'requested_token_type', 'subject_token_type', 'issued_token_type', 'traceparent'];
 
 function Labeled({ label, obj }) {
   if (!obj) return null;
   return (
     <div>
       <strong>{label}</strong>
-      <dl className="kv">
-        {Object.entries(obj).map(([k, v]) => (
-          <React.Fragment key={k}>
-            <dt>{k}</dt>
-            <dd><Primitives value={v} /></dd>
-          </React.Fragment>
-        ))}
-      </dl>
+      <Json value={obj} label={label} hot={HOP_HOT} />
     </div>
   );
 }

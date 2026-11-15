@@ -89,18 +89,6 @@ html { font-size: var(--fs, 16px); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .kv { grid-template-columns: 1fr; } .kv dd { border-bottom: 1px solid var(--border); padding-bottom: 4px; } }
 
-pre.code {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 12px;
-  overflow-x: auto;
-  margin: 0.5rem 0 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .token-panel { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .token-block { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface-2); }
 .token-block h4 { margin: 0 0 6px; font-size: 0.85rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
