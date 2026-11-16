@@ -8,6 +8,7 @@ import TalkTrackTab from './TalkTrackTab.jsx';
 import DiagramView from './DiagramView.jsx';
 import { DiagramTab } from './DiagramTab.jsx';
 import ShelfLink from './components/ShelfLink.jsx';
+import VerifyMark from './components/VerifyMark.jsx';
 import TopMenu, { applyFontSize } from './top-menu/TopMenu.jsx';
 import talkTrack from '../../docs/talk-track.md?raw';
 
@@ -129,6 +130,7 @@ export default function App() {
           talkTrack={{ active: tab === 'talk', onToggle: () => setTab('talk') }}
         >
           <ShelfLink headers={{ 'X-Lab-Workspace': WORKSPACE }} />
+          <VerifyMark id="idjag-runner" headers={{ 'X-Lab-Workspace': WORKSPACE }} />
         </TopMenu>
       </header>
       <main className="page">
