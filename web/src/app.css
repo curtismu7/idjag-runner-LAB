@@ -51,7 +51,7 @@ html { font-size: var(--fs, 16px); }
 }
 
 .page {
-  max-width: 1400px;
+  max-width: 2200px;
   margin: 0 auto;
   padding: 12px 0 2.5rem;
 }
