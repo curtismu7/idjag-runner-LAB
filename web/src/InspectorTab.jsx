@@ -3,11 +3,6 @@ import { api } from './api.js';
 import { Banner, Chip, ClaimsTable, TraceSteps, ErrorBox } from './components.jsx';
 import Json from './components/JsonPane.jsx';
 
-const b64urlDecodeJson = (p) => {
-  const pad = p + '='.repeat((4 - (p.length % 4)) % 4);
-  return JSON.parse(atob(pad.replace(/-/g, '+').replace(/_/g, '/')));
-};
-
 function KeyCard({ k }) {
   const [open, setOpen] = useState(false);
   const bits = k.n ? Math.log2(parseInt(k.n.slice(0, 8), 36)) * (k.n.length / 8) : null;
