@@ -90,7 +90,7 @@ export default function FlowTab() {
       <FlowDiagramDetails />
 
       <section className="card card--neutral" aria-labelledby="act1-h">
-        <h3 id="act1-h">PingFederate · IdP — sign in (pi.flow, then refresh grant)</h3>
+        <h3 id="act1-h"><span className="step-num" aria-hidden="true">1</span>PingFederate · IdP — sign in (pi.flow, then refresh grant)</h3>
         <p className="card-sub">Proves: a real PingFederate issues access + refresh tokens via a pi.flow sign-in (authorize + the flows API password step — no redirect, no password grant), and the refresh grant returns the ID token.</p>
         <div className="form-grid">
           <Field id="f-user" label="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -142,7 +142,7 @@ export default function FlowTab() {
       </section>
 
       <section className="card card--neutral" aria-labelledby="act2-h">
-        <h3 id="act2-h">PingFederate · Enterprise issuer — exchange the subject token for the ID-JAG</h3>
+        <h3 id="act2-h"><span className="step-num" aria-hidden="true">2</span>PingFederate · Enterprise issuer — exchange the subject token for the ID-JAG</h3>
         <p className="card-sub">Proves: PF issues an ID-JAG whose header typ is oauth-id-jag+jwt — an authorization grant, not an access token.</p>
         <div className="form-grid">
           <label htmlFor="f-kind">
@@ -172,7 +172,7 @@ export default function FlowTab() {
       </section>
 
       <section className="card card--neutral" aria-labelledby="act3-h">
-        <h3 id="act3-h">PingFederate · Resource AS — redeem the ID-JAG (jwt-bearer), then introspect</h3>
+        <h3 id="act3-h"><span className="step-num" aria-hidden="true">3</span>PingFederate · Resource AS — redeem the ID-JAG (jwt-bearer), then introspect</h3>
         <p className="card-sub">Proves: only the resource client can redeem the grant (jwt-bearer), and the result is an ordinary access token.</p>
         <div className="actions">
           <button className="primary" disabled={busy || !clientSecret || !act2Result}
@@ -208,7 +208,7 @@ export default function FlowTab() {
       </section>
 
       <section className="card card--neutral" aria-labelledby="act4-h">
-        <h3 id="act4-h">Policy checks — what each server refuses</h3>
+        <h3 id="act4-h"><span className="step-num" aria-hidden="true">4</span>Policy checks — what each server refuses</h3>
         <p className="card-sub">Proves: policy still holds when a caller does the wrong thing. A refusal here is the expected result.</p>
         <div className="actions">
           {ACT4_CASES.map((c) => (
