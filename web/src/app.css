@@ -125,3 +125,12 @@ html { font-size: var(--fs, 16px); }
 .presenter-say { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 10px 16px; margin-bottom: 14px; }
 .presenter-say p { margin: 4px 0; line-height: 1.5; }
 .app--presenter { font-size: 1.125rem; }
+
+/* An expanded box (diagram kit §8c): give it a width the details can be read at. */
+.react-flow__node.dk-open {
+  width: 320px;
+}
+.react-flow__node.dk-open .dg-node {
+  max-height: 420px;
+  overflow-y: auto;
+}
