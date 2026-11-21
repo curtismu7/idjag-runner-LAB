@@ -28,7 +28,8 @@ describe('TraceSteps hostile fixtures', () => {
     ];
     render(<TraceSteps steps={steps} />);
     const list = screen.getByTestId('trace-list');
-    expect(list.querySelectorAll('details').length).toBe(4);
+    // hybrid pane: the request's nested `headers` object is also a <details> section, so 4 steps + 1 section = 5
+    expect(list.querySelectorAll('details').length).toBe(5);
     expect(screen.getByText('real hop')).toBeTruthy();
     // the huge response (over JsonPane's 150k-character guard) is shown as plain text, so the status is read from that text, not a Form value
     expect(list.textContent).toContain('"status": 500');
