@@ -13,8 +13,8 @@ html { font-size: var(--fs, 16px); }
   border-bottom: 3px solid;
   border-image: var(--accent-gradient) 1;
  position: relative; }
-.shell-brand { display: flex; align-items: baseline; gap: 8px; color: var(--on-box); font-weight: 700; }
-.shell-brand small { font-weight: 400; opacity: 0.8; }
+.shell-brand  { display: flex; align-items: baseline; gap: 8px; color: var(--on-box); font-weight: 700; }
+.shell-brand small  { font-weight: 400; opacity: 0.8; }
 .shell-nav { display: flex; gap: 6px; flex-wrap: wrap; }
 .shell-nav button {
   border-radius: 999px;
